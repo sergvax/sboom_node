@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#08080d" />
+    <title>SberBoom — локальное управление</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2335c6ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='%230a0a12'/%3E%3Ccircle cx='32' cy='32' r='17' fill='none' stroke='url(%23g)' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='url(%23g)'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="aurora" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="11.5" stroke="url(#bg)" stroke-width="2.6" />
+            <circle cx="16" cy="16" r="4" fill="url(#bg)" />
+            <defs>
+              <linearGradient id="bg" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#9d7bff" />
+                <stop offset="1" stop-color="#35c6ff" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
+        <span class="brand-title">SberBoom</span>
+        <span class="brand-badge">LAN</span>
+      </div>
+      <div class="topbar-right">
+        <span class="server-pill" id="serverPill"><i></i> сервер</span>
+        <button class="btn ghost" id="addBtn">
+          <span class="btn-ico" data-icon="plus"></span> Колонка
+        </button>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="group-panel" id="groupPanel" hidden>
+        <div class="group-head">
+          <div>
+            <div class="group-title">Все колонки</div>
+            <div class="group-sub" id="groupSub"></div>
+          </div>
+          <div class="group-actions">
+            <button class="round-btn" data-action="g-playpause" title="Play/Pause на всех">
+              <span data-icon="play"></span>
+            </button>
+            <button class="round-btn" data-action="g-mute" title="Mute на всех">
+              <span data-icon="volume"></span>
+            </button>
+          </div>
+        </div>
+        <div class="group-volume">
+          <span class="group-vol-ico" data-icon="volume"></span>
+          <input type="range" id="groupVol" min="0" max="100" step="1" value="0" />
+          <span class="group-vol-val" id="groupVolVal">0</span>
+        </div>
+      </section>
+
+      <section class="grid" id="grid" aria-live="polite"></section>
+
+      <section class="empty" id="empty" hidden>
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="5" y="2.5" width="14" height="19" rx="3" />
+            <circle cx="12" cy="9" r="2.6" />
+            <path d="M9.5 15.5h5" />
+          </svg>
+        </div>
+        <h1>Добавьте колонку</h1>
+        <p>Всё работает по локальной сети, без облака и аккаунта Sber.</p>
+        <ol class="steps">
+          <li><b>IP-адрес</b> — узнайте в роутере (DHCP) или найдите автоматически.</li>
+          <li><b>Сопряжение</b> — нажмите «+» на корпусе колонки один раз.</li>
+          <li><b>Готово</b> — токен сохранится, управление останется локальным.</li>
+        </ol>
+        <button class="btn accent" id="emptyAddBtn">
+          <span class="btn-ico" data-icon="plus"></span> Добавить колонку
+        </button>
+      </section>
+    </main>
+
+    <dialog class="dialog" id="addDialog">
+      <form method="dialog" class="dialog-inner" id="addForm">
+        <header class="dialog-head">
+          <h2>Добавить колонку</h2>
+          <button class="icon-btn" type="button" id="closeDialog" title="Закрыть" aria-label="Закрыть">
+            <span data-icon="x"></span>
+          </button>
+        </header>
+
+        <label class="field">
+          <span>Название <em>необязательно</em></span>
+          <input name="name" type="text" placeholder="Кухня" autocomplete="off" maxlength="64" />
+        </label>
+
+        <label class="field">
+          <span>IP-адрес</span>
+          <input name="host" type="text" placeholder="192.168.1.42" autocomplete="off" required />
+        </label>
+
+        <div class="form-error" id="addError" hidden></div>
+
+        <button class="btn accent wide" id="addSubmit" type="submit">Добавить</button>
+
+        <div class="discover">
+          <div class="discover-head">
+            <span>Найти в сети</span>
+            <button class="btn small ghost" type="button" id="discoverBtn">Искать</button>
+          </div>
+          <div class="discover-list" id="discoverList">
+            <div class="discover-hint">mDNS-поиск работает, если роутер не режет multicast.</div>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toasts" id="toasts"></div>
+
+    <template id="cardTpl">
+      <article class="card">
+        <div class="card-glow" aria-hidden="true"></div>
+
+        <header class="card-head">
+          <span class="status-dot"></span>
+          <div class="card-titles">
+            <h2 class="card-name"></h2>
+            <span class="card-host"></span>
+          </div>
+          <div class="card-tools">
+            <button class="icon-btn" data-action="rename" title="Переименовать"><span data-icon="edit"></span></button>
+            <button class="icon-btn" data-action="pair" title="Сопрячь заново"><span data-icon="link"></span></button>
+            <button class="icon-btn danger" data-action="remove" title="Удалить"><span data-icon="trash"></span></button>
+          </div>
+        </header>
+
+        <div class="now">
+          <div class="cover">
+            <img alt="" loading="lazy" />
+            <div class="cover-empty" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M9 18V5l10-2v13" />
+                <circle cx="6.5" cy="18" r="2.5" />
+                <circle cx="16.5" cy="16" r="2.5" />
+              </svg>
+            </div>
+          </div>
+          <div class="meta">
+            <div class="track-title">Ничего не играет</div>
+            <div class="track-artist"></div>
+            <div class="track-album"></div>
+            <div class="chips">
+              <span class="chip source" hidden></span>
+              <span class="chip buffer" hidden>буферизация</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress">
+          <div class="bar" data-action="seek" role="slider" aria-label="Позиция трека">
+            <div class="fill"></div>
+            <div class="knob"></div>
+          </div>
+          <div class="times"><span class="t-pos">0:00</span><span class="t-dur">0:00</span></div>
+        </div>
+
+        <div class="transport">
+          <button class="icon-btn" data-action="shuffle" title="Перемешать"><span data-icon="shuffle"></span></button>
+          <button class="icon-btn" data-action="prev" title="Предыдущий"><span data-icon="prev"></span></button>
+          <button class="play-btn" data-action="playpause" title="Play/Pause"><span data-icon="play"></span></button>
+          <button class="icon-btn" data-action="next" title="Следующий"><span data-icon="next"></span></button>
+          <button class="icon-btn" data-action="repeat" title="Повтор"><span data-icon="repeat"></span></button>
+        </div>
+
+        <div class="volume">
+          <button class="icon-btn" data-action="mutetoggle" title="Mute"><span data-icon="volume"></span></button>
+          <input class="vol-range" type="range" min="0" max="100" step="1" value="0" aria-label="Громкость" />
+          <span class="vol-val">0</span>
+        </div>
+
+        <footer class="card-foot">
+          <button class="like-btn" data-action="like" title="Нравится"><span data-icon="heart"></span></button>
+          <button class="link-btn" data-action="refresh">Обновить</button>
+          <span class="state-label"></span>
+        </footer>
+
+        <div class="overlay" hidden>
+          <div class="overlay-inner">
+            <div class="overlay-badge" aria-hidden="true">+</div>
+            <h3 class="overlay-title"></h3>
+            <p class="overlay-text"></p>
+            <button class="btn accent overlay-btn" data-action="pair">
+              <span class="btn-ico" data-icon="link"></span> Сопрячь
+            </button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

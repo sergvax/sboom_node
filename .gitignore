@@ -1,0 +1,5 @@
+node_modules/
+data/
+mock/certs/
+.DS_Store
+*.log
