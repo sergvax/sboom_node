@@ -122,6 +122,66 @@ test('UI: три карточки, группа, живые обновления
   }
 });
 
+test('UI: мультирум — кнопки на карточках, чипы и статус группы', async () => {
+  const snapshot = {
+    serverTime: Date.now(),
+    speakers: [speaker(10, 'Кухня'), speaker(11, 'Спальня'), speaker(12, 'Гостиная')],
+  };
+  const { dom, window, events } = await boot(snapshot);
+
+  try {
+    const doc = window.document;
+    const buttons = [...doc.querySelectorAll('.mr-btn')];
+    assert.equal(buttons.length, 3);
+    assert.ok(buttons.every((b) => !b.disabled), 'мультирум доступен на всех карточках');
+    assert.deepEqual(
+      [...doc.querySelectorAll('.mr-label')].map((el) => el.textContent),
+      ['Мультирум', 'Мультирум', 'Мультирум'],
+    );
+    assert.ok([...doc.querySelectorAll('.chip.multi')].every((c) => c.hidden));
+
+    // Мультирум включён: Кухня — источник, Спальня — участник.
+    const active = JSON.parse(JSON.stringify(snapshot));
+    active.multiroom = {
+      active: true,
+      state: 'active',
+      sourceId: 10,
+      memberIds: [10, 11],
+      message: null,
+    };
+    events[0].onmessage({ data: JSON.stringify(active) });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const cards = [...doc.querySelectorAll('.card')];
+    assert.equal(cards[0].querySelector('.mr-label').textContent, 'Стоп');
+    assert.equal(cards[1].querySelector('.mr-label').textContent, 'Выйти');
+    assert.equal(cards[2].querySelector('.mr-label').textContent, 'Мультирум');
+    assert.equal(cards[2].querySelector('.mr-btn').disabled, true);
+    assert.ok(cards[0].querySelector('.mr-btn').classList.contains('active'));
+    assert.equal(cards[0].querySelector('.mr-btn').disabled, false);
+
+    assert.equal(cards[0].querySelector('.chip.multi').hidden, false);
+    assert.equal(cards[0].querySelector('.chip.multi').textContent, 'источник');
+    assert.equal(cards[1].querySelector('.chip.multi').textContent, 'мультирум');
+    assert.equal(cards[2].querySelector('.chip.multi').hidden, true);
+
+    assert.match(doc.querySelector('#groupSub').textContent, /мультирум: 2/);
+    const groupBtn = doc.querySelector('[data-action="g-multiroom"]');
+    assert.ok(groupBtn.classList.contains('active'));
+    assert.equal(groupBtn.disabled, false);
+    assert.match(groupBtn.innerHTML, /<rect/, 'иконка стоп у групповой кнопки');
+
+    // Колонка без трека Звука не может быть источником.
+    const noTrack = JSON.parse(JSON.stringify(snapshot));
+    noTrack.speakers[0].track = null;
+    events[0].onmessage({ data: JSON.stringify(noTrack) });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(doc.querySelectorAll('.card')[0].querySelector('.mr-btn').disabled, true);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('UI: несопряжённая колонка показывает оверлей, во время pair — сообщение', async () => {
   const snapshot = {
     serverTime: Date.now(),

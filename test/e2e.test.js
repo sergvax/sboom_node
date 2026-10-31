@@ -87,7 +87,7 @@ test('SpeakerManager: мультирум запускает трек на вто
       () => {
         const list = manager.snapshot().speakers;
         return list.length === 2 &&
-          list.every((s) => s.status === 'connected' && s.track?.track_id)
+          list.every((s) => s.status === 'connected' && s.track?.trackId)
           ? list
           : null;
       },
@@ -112,11 +112,11 @@ test('SpeakerManager: мультирум запускает трек на вто
         const list = manager.snapshot().speakers;
         const src = list.find((s) => s.id === a.id);
         const dst = list.find((s) => s.id === b.id);
-        return dst?.track?.track_id === src?.track?.track_id && dst?.track?.playing ? { src, dst } : null;
+        return dst?.track?.trackId === src?.track?.trackId && dst?.track?.playing ? { src, dst } : null;
       },
       { timeout: 15_000, label: 'вторая колонка играет тот же трек' },
     );
-    assert.equal(bothPlaying.dst.track.track_id, bothPlaying.src.track.track_id);
+    assert.equal(bothPlaying.dst.track.trackId, bothPlaying.src.track.trackId);
 
     // Пауза на источнике — пауза на всех.
     await manager.command(a.id, 'pause');
@@ -126,22 +126,22 @@ test('SpeakerManager: мультирум запускает трек на вто
     );
 
     // Следующий трек — ведомая догоняет источник через deeplink.
-    const before = manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.track_id;
+    const before = manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.trackId;
     await manager.command(a.id, 'next');
     const afterNext = await waitFor(
       () => {
         const list = manager.snapshot().speakers;
         const src = list.find((s) => s.id === a.id);
         const dst = list.find((s) => s.id === b.id);
-        return src?.track?.track_id &&
-          src.track.track_id !== before &&
-          dst?.track?.track_id === src.track.track_id
+        return src?.track?.trackId &&
+          src.track.trackId !== before &&
+          dst?.track?.trackId === src.track.trackId
           ? { src, dst }
           : null;
       },
       { timeout: 20_000, label: 'обе колонки перешли на новый трек' },
     );
-    assert.equal(afterNext.dst.track.track_id, afterNext.src.track.track_id);
+    assert.equal(afterNext.dst.track.trackId, afterNext.src.track.trackId);
 
     const stopped = await manager.stopMultiroom();
     assert.equal(stopped.active, false);

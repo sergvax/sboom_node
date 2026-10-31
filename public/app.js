@@ -351,6 +351,13 @@ function updateCard(c, sp) {
   c.bar.classList.toggle('disabled', !t?.duration);
 }
 
+function isMusicTrack(sp) {
+  const id = sp.track?.track_id ?? sp.track?.trackId;
+  if (!id) return false;
+  const source = sp.track?.source;
+  return !source || source === 'MUSIC';
+}
+
 function updateMultiButton(c, sp, { online, inGroup, isSource }) {
   const mr = state.multiroom || {};
   const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
@@ -374,7 +381,7 @@ function updateMultiButton(c, sp, { online, inGroup, isSource }) {
     c.multiBtn.classList.add('active');
   } else {
     c.multiBtn.classList.remove('active');
-    const hasTrack = Boolean(sp.track?.track_id ?? sp.track?.trackId);
+    const hasTrack = isMusicTrack(sp);
     if (mr.active) {
       disabled = true;
       title = 'Мультирум уже включён с другой колонки';
@@ -432,7 +439,7 @@ function renderGroup(list) {
   const mrBtn = $('[data-action="g-multiroom"]', els.groupPanel);
   if (mrBtn) {
     const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
-    const hasSource = connected.some((s) => s.track?.track_id ?? s.track?.trackId);
+    const hasSource = connected.some(isMusicTrack);
     const icon = mr.active ? 'stop' : 'multiroom';
     const ico = $('[data-icon]', mrBtn);
     if (ico && ico.dataset.icon !== icon) {
@@ -644,8 +651,9 @@ function bindGroup() {
         return;
       }
       const source =
-        connected.find((s) => s.track?.playing && (s.track?.track_id ?? s.track?.trackId)) ||
-        connected.find((s) => s.track?.track_id ?? s.track?.trackId);
+        connected.find(
+          (s) => s.track?.playing && isMusicTrack(s),
+        ) || connected.find(isMusicTrack);
       if (!source) {
         toast('Включите музыку Звука на одной из колонок', 'error');
         return;
