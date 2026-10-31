@@ -126,6 +126,28 @@ export async function startMockSpeaker(opts = {}) {
     ws.send(Buffer.concat([field(1, 0, 2), field(2, 2, msgId || randomUUID()), field(5, 2, inner)]));
   };
 
+  /** Ответ ServerAction: поле 4 верхнего уровня (как у прошивки). */
+  const replyAction = (ws, msgId, inner) => {
+    if (ws.readyState !== ws.OPEN) return;
+    ws.send(Buffer.concat([field(1, 0, 2), field(2, 2, msgId || randomUUID()), field(4, 2, inner)]));
+  };
+
+  const playDeeplink = (ws, msgId, deeplink) => {
+    const match = /[?&]tid=(\d+)/.exec(String(deeplink || ''));
+    if (!match) {
+      replyAction(ws, msgId, field(1, 2, 'BAD DEEPLINK'));
+      return;
+    }
+    st.trackId = match[1];
+    st.title = `Mock Track ${st.trackId}`;
+    st.position = 0;
+    st.positionAt = Date.now();
+    st.playing = true;
+    replyAction(ws, msgId, field(1, 2, 'OK'));
+    pushState(ws);
+    pushMeta(ws);
+  };
+
   const pushState = (ws) => reply(ws, randomUUID(), field(12, 2, stateJson()));
   const pushMeta = (ws) => reply(ws, randomUUID(), field(10, 2, trackJson()));
 
@@ -137,6 +159,24 @@ export async function startMockSpeaker(opts = {}) {
     ws.on('message', (data) => {
       const parsed = decode(Buffer.from(data));
       const msgId = parsed[2];
+
+      // ServerAction / DEEPLINK: field(4) = {1: '{"name":"DEEPLINK",…}'}
+      if (parsed[4] && typeof parsed[4] === 'object') {
+        if (parsed[3] !== token) return;
+        let body = null;
+        try {
+          body = JSON.parse(parsed[4][1]);
+        } catch {
+          body = null;
+        }
+        if (body?.name === 'DEEPLINK') {
+          playDeeplink(ws, msgId, body.payload?.deeplink);
+        } else {
+          replyAction(ws, msgId, field(1, 2, 'UNKNOWN ACTION'));
+        }
+        return;
+      }
+
       const req = parsed[5];
       if (!req || typeof req !== 'object') return;
 

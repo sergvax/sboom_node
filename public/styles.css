@@ -266,6 +266,19 @@ svg {
   transform: scale(0.94);
 }
 
+.round-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.round-btn.active {
+  color: #d7ccff;
+  border-color: rgba(139, 107, 255, 0.5);
+  background: rgba(139, 107, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(139, 107, 255, 0.14), 0 8px 20px rgba(90, 60, 220, 0.22);
+}
+
 /* ── page / group ───────────────────────────────────────── */
 
 .page {
@@ -644,6 +657,12 @@ input[type="range"]::-moz-range-thumb {
   border-color: rgba(255, 184, 77, 0.25);
 }
 
+.chip.multi {
+  color: #9fe6ff;
+  background: rgba(53, 198, 255, 0.1);
+  border-color: rgba(53, 198, 255, 0.26);
+}
+
 /* progress */
 
 .progress {
@@ -792,6 +811,7 @@ input[type="range"]::-moz-range-thumb {
 .card-foot {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: auto;
   padding-top: 4px;
@@ -837,6 +857,29 @@ input[type="range"]::-moz-range-thumb {
 .link-btn:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.06);
+}
+
+.link-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--muted-2);
+  background: none;
+}
+
+.mr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mr-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mr-btn.active {
+  color: #cbbdff;
+  background: rgba(139, 107, 255, 0.14);
 }
 
 .state-label {

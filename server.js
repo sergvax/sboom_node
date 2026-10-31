@@ -85,6 +85,26 @@ app.post('/api/group/command', wrap(async (req, res) => {
   res.json({ ...result, state: manager.snapshot() });
 }));
 
+// ───────────────────────────── мультирум ─────────────────────────────
+
+app.post('/api/multiroom/start', wrap(async (req, res) => {
+  const { sourceId } = req.body || {};
+  const multiroom = await manager.startMultiroom(sourceId);
+  res.json({ multiroom, state: manager.snapshot() });
+}));
+
+app.post('/api/multiroom/stop', wrap(async (_req, res) => {
+  const multiroom = await manager.stopMultiroom();
+  res.json({ multiroom, state: manager.snapshot() });
+}));
+
+app.post('/api/multiroom/leave', wrap(async (req, res) => {
+  const { id } = req.body || {};
+  if (!id) throw new Error('Не указана колонка');
+  const multiroom = await manager.leaveMultiroom(id);
+  res.json({ multiroom, state: manager.snapshot() });
+}));
+
 // Server-Sent Events: живые обновления состояния.
 app.get('/api/events', (req, res) => {
   res.set({

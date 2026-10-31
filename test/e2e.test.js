@@ -69,6 +69,94 @@ test('SpeakerClient: без токена колонка не отвечает (R
   }
 });
 
+test('SpeakerManager: мультирум запускает трек на второй колонке, зеркалит паузу и next, затем стоп', async () => {
+  const mockA = await startMockSpeaker();
+  const mockB = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-mr-'));
+  const store = new Store(path.join(dir, 'speakers.json'));
+  const manager = new SpeakerManager({ store });
+
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'Источник', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'Вторая', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 &&
+          list.every((s) => s.status === 'connected' && s.track?.track_id)
+          ? list
+          : null;
+      },
+      { label: 'обе колонки подключились' },
+    );
+
+    // Источник играет — с него стартуем мультирум.
+    await manager.command(a.id, 'play');
+    await waitFor(
+      () => manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.playing,
+      { label: 'источник заиграл' },
+    );
+
+    const started = await manager.startMultiroom(a.id);
+    assert.equal(started.active, true);
+    assert.equal(started.sourceId, a.id);
+    assert.deepEqual(new Set(started.memberIds), new Set([a.id, b.id]));
+
+    // Обе колонки играют один и тот же трек.
+    const bothPlaying = await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        const src = list.find((s) => s.id === a.id);
+        const dst = list.find((s) => s.id === b.id);
+        return dst?.track?.track_id === src?.track?.track_id && dst?.track?.playing ? { src, dst } : null;
+      },
+      { timeout: 15_000, label: 'вторая колонка играет тот же трек' },
+    );
+    assert.equal(bothPlaying.dst.track.track_id, bothPlaying.src.track.track_id);
+
+    // Пауза на источнике — пауза на всех.
+    await manager.command(a.id, 'pause');
+    await waitFor(
+      () => manager.snapshot().speakers.every((s) => !s.track?.playing),
+      { timeout: 10_000, label: 'пауза на обеих колонках' },
+    );
+
+    // Следующий трек — ведомая догоняет источник через deeplink.
+    const before = manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.track_id;
+    await manager.command(a.id, 'next');
+    const afterNext = await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        const src = list.find((s) => s.id === a.id);
+        const dst = list.find((s) => s.id === b.id);
+        return src?.track?.track_id &&
+          src.track.track_id !== before &&
+          dst?.track?.track_id === src.track.track_id
+          ? { src, dst }
+          : null;
+      },
+      { timeout: 20_000, label: 'обе колонки перешли на новый трек' },
+    );
+    assert.equal(afterNext.dst.track.track_id, afterNext.src.track.track_id);
+
+    const stopped = await manager.stopMultiroom();
+    assert.equal(stopped.active, false);
+    assert.deepEqual(stopped.memberIds, []);
+    await waitFor(
+      () => manager.snapshot().speakers.every((s) => !s.track?.playing),
+      { timeout: 10_000, label: 'после стопа всё на паузе' },
+    );
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await Promise.allSettled([mockA.close(), mockB.close()]);
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('SpeakerManager: add → pair → connected → команды → remove', async () => {
   const mock = await startMockSpeaker();
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-test-'));

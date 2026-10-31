@@ -15,6 +15,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.4"/><path d="M14 11a5 5 0 0 0-7.1 0l-3 3A5 5 0 0 0 11 21.1l1.5-1.5"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+  multiroom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8.5" width="7" height="11" rx="2"/><circle cx="6.5" cy="16.2" r="1.3"/><path d="M14.5 7.5a6 6 0 0 1 0 9"/><path d="M18 4.5a10.5 10.5 0 0 1 0 15"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.2"/></svg>',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -36,9 +38,11 @@ const els = {
 
 const state = {
   speakers: [],
+  multiroom: null,
   serverTime: Date.now(),
   offset: 0,
   groupDragUntil: 0,
+  mrBusy: false,
 };
 
 const cards = new Map();
@@ -145,6 +149,7 @@ function createCard(sp) {
     artist: $('.track-artist', node),
     album: $('.track-album', node),
     source: $('.chip.source', node),
+    multiChip: $('.chip.multi', node),
     buffer: $('.chip.buffer', node),
     bar: $('.bar', node),
     fill: $('.fill', node),
@@ -160,6 +165,9 @@ function createCard(sp) {
     volRange: $('.vol-range', node),
     volVal: $('.vol-val', node),
     like: $('.like-btn', node),
+    multiBtn: $('.mr-btn', node),
+    multiIcon: $('.mr-btn [data-icon]', node),
+    multiLabel: $('.mr-label', node),
     stateLabel: $('.state-label', node),
     overlay: $('.overlay', node),
     overlayInner: $('.overlay-inner', node),
@@ -256,6 +264,7 @@ function render() {
 function updateCard(c, sp) {
   const t = sp.track;
   const online = sp.status === 'connected';
+  const mr = state.multiroom || {};
 
   c.dot.className = `status-dot ${dotClass(sp)}`;
   c.dot.title = sp.error || statusLabel(sp);
@@ -285,6 +294,14 @@ function updateCard(c, sp) {
   c.source.textContent = sourceText;
   c.buffer.hidden = !t?.buffering;
 
+  const inGroup = Boolean(mr.active && mr.memberIds?.includes(sp.id));
+  const isSource = inGroup && mr.sourceId === sp.id;
+  c.multiChip.hidden = !inGroup;
+  c.multiChip.textContent = isSource ? 'источник' : 'мультирум';
+  c.multiChip.title = isSource
+    ? 'С этой колонки транслируется мультирум'
+    : 'Колонка повторяет трек источника';
+
   c.shuffle.classList.toggle('active', Boolean(t?.shuffle));
   c.repeat.classList.toggle('active', Boolean(t) && (t.repeat || 'off') !== 'off');
   c.repeat.title =
@@ -305,6 +322,8 @@ function updateCard(c, sp) {
 
   c.like.classList.toggle('active', Boolean(t?.liked));
   c.like.title = t?.liked ? 'Убрать лайк' : 'Нравится';
+
+  updateMultiButton(c, sp, { online, inGroup, isSource });
 
   c.stateLabel.textContent = statusLabel(sp);
   c.stateLabel.title = sp.error || '';
@@ -332,13 +351,65 @@ function updateCard(c, sp) {
   c.bar.classList.toggle('disabled', !t?.duration);
 }
 
+function updateMultiButton(c, sp, { online, inGroup, isSource }) {
+  const mr = state.multiroom || {};
+  const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
+  const others = state.speakers.filter((s) => s.id !== sp.id && s.status === 'connected').length;
+
+  let label = 'Мультирум';
+  let icon = 'multiroom';
+  let disabled = busy || !online;
+  let title = 'Включить этот трек на остальных колонках';
+
+  if (isSource) {
+    label = 'Стоп';
+    icon = 'stop';
+    title = 'Остановить мультирум';
+    disabled = busy;
+    c.multiBtn.classList.add('active');
+  } else if (inGroup) {
+    label = 'Выйти';
+    title = 'Отключить эту колонку от мультирума';
+    disabled = busy;
+    c.multiBtn.classList.add('active');
+  } else {
+    c.multiBtn.classList.remove('active');
+    const hasTrack = Boolean(sp.track?.track_id ?? sp.track?.trackId);
+    if (mr.active) {
+      disabled = true;
+      title = 'Мультирум уже включён с другой колонки';
+    } else if (!others) {
+      disabled = true;
+      title = 'Нужна ещё хотя бы одна подключённая колонка';
+    } else if (!hasTrack) {
+      disabled = true;
+      title = 'Включите музыку Звука — радио и Bluetooth не переносятся';
+    }
+  }
+
+  c.multiBtn.disabled = disabled;
+  c.multiBtn.title = title;
+  c.multiLabel.textContent = label;
+  const ico = c.multiIcon;
+  if (ico.dataset.icon !== icon) {
+    ico.dataset.icon = icon;
+    ico.innerHTML = ICONS[icon];
+  }
+}
+
 function renderGroup(list) {
   const show = list.length >= 2;
   els.groupPanel.hidden = !show;
   if (!show) return;
 
   const connected = list.filter((s) => s.status === 'connected');
-  els.groupSub.textContent = `${connected.length} из ${list.length} в сети`;
+  const mr = state.multiroom || {};
+  let sub = `${connected.length} из ${list.length} в сети`;
+  if (mr.state === 'starting') sub += ' · мультирум запускается…';
+  else if (mr.state === 'stopping') sub += ' · мультирум останавливается…';
+  else if (mr.active) sub += ` · мультирум: ${mr.memberIds?.length || 0}`;
+  else if (mr.message) sub += ` · ${mr.message}`;
+  els.groupSub.textContent = sub;
 
   if (Date.now() > state.groupDragUntil) {
     const withVolume = connected.filter((s) => typeof s.volume === 'number');
@@ -356,6 +427,26 @@ function renderGroup(list) {
   const allMuted = connected.length > 0 && connected.every((s) => s.muted);
   const muteIco = $('[data-action="g-mute"] [data-icon]');
   if (muteIco) muteIco.innerHTML = allMuted ? ICONS.mute : ICONS.volume;
+
+  // Групповая кнопка мультирума: включить / остановить.
+  const mrBtn = $('[data-action="g-multiroom"]', els.groupPanel);
+  if (mrBtn) {
+    const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
+    const hasSource = connected.some((s) => s.track?.track_id ?? s.track?.trackId);
+    const icon = mr.active ? 'stop' : 'multiroom';
+    const ico = $('[data-icon]', mrBtn);
+    if (ico && ico.dataset.icon !== icon) {
+      ico.dataset.icon = icon;
+      ico.innerHTML = ICONS[icon];
+    }
+    mrBtn.classList.toggle('active', Boolean(mr.active));
+    mrBtn.disabled = busy || (!mr.active && (!hasSource || connected.length < 2));
+    mrBtn.title = mr.active
+      ? 'Остановить мультирум'
+      : hasSource
+        ? 'Включить этот трек на всех колонках'
+        : 'Включите музыку Звука на одной из колонок';
+  }
 }
 
 /* ── actions ─────────────────────────────────────────── */
@@ -422,6 +513,9 @@ function onAction(action, sp, refs, target) {
     case 'refresh':
       command(sp, 'refresh').catch(() => {});
       break;
+    case 'multiroom':
+      onMultiroom(sp);
+      break;
     case 'pair':
       startPair(sp);
       break;
@@ -469,6 +563,71 @@ async function addSpeaker({ name, host, port }) {
   await api('/api/speakers', { method: 'POST', body: { name, host, port } });
 }
 
+/* ── multiroom ───────────────────────────────────────── */
+
+async function onMultiroom(sp) {
+  const mr = state.multiroom || {};
+  if (mr.active && mr.sourceId === sp.id) return stopMultiroom();
+  if (mr.active && mr.memberIds?.includes(sp.id)) return leaveMultiroom(sp);
+  return startMultiroom(sp);
+}
+
+async function startMultiroom(sp) {
+  const mr = state.multiroom || {};
+  if (state.mrBusy || mr.state === 'starting') return;
+  state.mrBusy = true;
+  render();
+  try {
+    const data = await api('/api/multiroom/start', {
+      method: 'POST',
+      body: { sourceId: sp.id },
+    });
+    if (data.state) applySnapshot(data.state);
+    const msg = data.multiroom?.message;
+    toast(msg || 'Мультирум включён — колонки играют один трек', msg ? 'error' : 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    state.mrBusy = false;
+    render();
+  }
+}
+
+async function stopMultiroom() {
+  if (state.mrBusy) return;
+  state.mrBusy = true;
+  render();
+  try {
+    const data = await api('/api/multiroom/stop', { method: 'POST' });
+    if (data.state) applySnapshot(data.state);
+    toast('Мультирум выключен');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    state.mrBusy = false;
+    render();
+  }
+}
+
+async function leaveMultiroom(sp) {
+  if (state.mrBusy) return;
+  state.mrBusy = true;
+  render();
+  try {
+    const data = await api('/api/multiroom/leave', {
+      method: 'POST',
+      body: { id: sp.id },
+    });
+    if (data.state) applySnapshot(data.state);
+    toast(`«${sp.name}» вышла из мультирума`);
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    state.mrBusy = false;
+    render();
+  }
+}
+
 /* ── group controls ──────────────────────────────────── */
 
 function bindGroup() {
@@ -478,6 +637,21 @@ function bindGroup() {
     const action = target.dataset.action;
     const connected = state.speakers.filter((s) => s.status === 'connected');
 
+    if (action === 'g-multiroom') {
+      const mr = state.multiroom || {};
+      if (mr.active) {
+        await stopMultiroom();
+        return;
+      }
+      const source =
+        connected.find((s) => s.track?.playing && (s.track?.track_id ?? s.track?.trackId)) ||
+        connected.find((s) => s.track?.track_id ?? s.track?.trackId);
+      if (!source) {
+        toast('Включите музыку Звука на одной из колонок', 'error');
+        return;
+      }
+      await startMultiroom(source);
+    }
     if (action === 'g-playpause') {
       const anyPlaying = state.speakers.some((s) => s.track?.playing);
       const cmd = anyPlaying ? 'pause' : 'play';
@@ -629,6 +803,7 @@ async function runDiscover() {
 function applySnapshot(data) {
   if (!data || !Array.isArray(data.speakers)) return;
   state.speakers = data.speakers;
+  state.multiroom = data.multiroom || null;
   state.serverTime = data.serverTime || Date.now();
   state.offset = state.serverTime - Date.now();
   render();
