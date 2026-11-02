@@ -38,16 +38,17 @@ const els = {
   discoverList: $('#discoverList'),
   toasts: $('#toasts'),
   serverPill: $('#serverPill'),
-  zvukPanel: $('#zvukPanel'),
-  targetSelect: $('#targetSelect'),
-  targetHint: $('#targetHint'),
-  playHint: $('#playHint'),
-  playHintText: $('#playHintText'),
+  searchDialog: $('#searchDialog'),
+  searchTitle: $('#searchTitle'),
+  searchTarget: $('#searchTarget'),
+  closeSearch: $('#closeSearch'),
   searchForm: $('#searchForm'),
   searchInput: $('#searchInput'),
+  searchClear: $('#searchClear'),
   searchBtn: $('#searchBtn'),
   searchStatus: $('#searchStatus'),
   searchResults: $('#searchResults'),
+  linkDetails: $('#linkDetails'),
   linkForm: $('#linkForm'),
   linkInput: $('#linkInput'),
   linkBtn: $('#linkBtn'),
@@ -67,8 +68,9 @@ const state = {
   offset: 0,
   groupDragUntil: 0,
   mrBusy: false,
-  targetId: null,
+  searchSpeakerId: null,
   searchSeq: 0,
+  historySeq: 0,
   queueSpeakerId: null,
 };
 
@@ -192,6 +194,7 @@ function createCard(sp) {
     volRange: $('.vol-range', node),
     volVal: $('.vol-val', node),
     like: $('.like-btn', node),
+    searchBtn: $('[data-action="search"]', node),
     queueBtn: $('[data-action="queue"]', node),
     multiBtn: $('.mr-btn', node),
     multiIcon: $('.mr-btn [data-icon]', node),
@@ -287,64 +290,6 @@ function render() {
   }
 
   renderGroup(list);
-  renderTargets(list);
-}
-
-function renderTargets(list) {
-  const connected = (list || []).filter((s) => s.status === 'connected');
-  const select = els.targetSelect;
-  const previous = state.targetId || select.value;
-  select.replaceChildren();
-
-  if (!connected.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Нет колонок в сети';
-    select.append(option);
-    select.disabled = true;
-    state.targetId = null;
-    els.targetHint.textContent = 'нет колонок в сети';
-    els.playHint.hidden = true;
-    return;
-  }
-
-  for (const sp of connected) {
-    const option = document.createElement('option');
-    option.value = sp.id;
-    option.textContent = sp.name;
-    select.append(option);
-  }
-  select.disabled = false;
-  const chosen = connected.some((s) => String(s.id) === String(previous))
-    ? String(previous)
-    : String(connected[0].id);
-  select.value = chosen;
-  state.targetId = chosen;
-  updateTargetLabels();
-}
-
-/** Подписи «куда уйдёт трек»: в баре выбора и над результатами. */
-function updateTargetLabels() {
-  const id = els.targetSelect.value || state.targetId;
-  const hasTarget = Boolean(id);
-  const name = hasTarget ? speakerName(id) : '';
-
-  els.targetHint.textContent = hasTarget
-    ? 'сюда пойдёт выбранный трек'
-    : 'выберите колонку';
-  els.playHint.hidden = !hasTarget;
-  if (hasTarget) {
-    els.playHintText.textContent = `Нажмите на результат — он заиграет на «${name}»`;
-  }
-
-  for (const row of els.searchResults.querySelectorAll('.zp-item')) {
-    if (!hasTarget) continue;
-    row.title = `Играть на «${name}»`;
-    row.setAttribute(
-      'aria-label',
-      `Играть «${row.dataset.title || 'трек'}» на «${name}»`,
-    );
-  }
 }
 
 function updateCard(c, sp) {
@@ -410,6 +355,10 @@ function updateCard(c, sp) {
   c.like.title = t?.liked ? 'Убрать лайк' : 'Нравится';
   c.queueBtn.disabled = !online;
   c.queueBtn.title = online ? 'Очередь колонки' : 'Колонка не в сети';
+  c.searchBtn.disabled = !online;
+  c.searchBtn.title = online
+    ? 'Найти музыку и включить на этой колонке'
+    : 'Колонка не в сети';
 
   updateMultiButton(c, sp, { online, inGroup, isSource });
 
@@ -613,6 +562,9 @@ function onAction(action, sp, refs, target) {
       break;
     case 'queue':
       openQueue(sp);
+      break;
+    case 'search':
+      openSearch(sp);
       break;
     case 'pair':
       startPair(sp);
@@ -851,6 +803,111 @@ function makeCover(src, fallbackIcon = 'queue') {
   return box;
 }
 
+function fallbackIcon(kind) {
+  if (kind === 'artist') return 'heart';
+  if (kind === 'track' || kind === 'podcast') return 'play';
+  return 'queue';
+}
+
+function makeResultRow(item, { origin }) {
+  const targetName = speakerName(state.searchSpeakerId);
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'zp-item';
+  row.dataset.origin = origin;
+  row.dataset.kind = item.kind;
+  row.dataset.id = item.id;
+  row.dataset.title = item.title || `ID ${item.id}`;
+  row.dataset.subtitle = item.subtitle || '';
+  row.dataset.cover = item.cover || '';
+  row.dataset.duration = item.duration ? String(item.duration) : '';
+  row.title = `Играть на «${targetName}»`;
+  row.setAttribute('aria-label', `Играть «${item.title || item.id}» на «${targetName}»`);
+
+  row.append(makeCover(item.cover, fallbackIcon(item.kind)));
+
+  const info = document.createElement('div');
+  info.className = 'zp-info';
+  const name = document.createElement('div');
+  name.className = 'zp-name';
+  name.textContent = item.title || `ID ${item.id}`;
+  const meta = document.createElement('div');
+  meta.className = 'zp-meta';
+  const bits = [];
+  if (item.subtitle) bits.push(item.subtitle);
+  if (item.duration) bits.push(fmtTime(item.duration));
+  if (item.explicit) bits.push('18+');
+  if (item.count >= 2) bits.push(`×${item.count}`);
+  meta.textContent = bits.join(' · ') || (item.kind === 'track' ? 'Трек' : '');
+  info.append(name, meta);
+  row.append(info);
+
+  const play = document.createElement('span');
+  play.className = 'zp-play';
+  play.dataset.icon = 'playSmall';
+  play.innerHTML = ICONS.playSmall;
+  play.setAttribute('aria-hidden', 'true');
+  const playLabel = document.createElement('span');
+  playLabel.className = 'zp-play-label';
+  playLabel.textContent = 'Играть';
+  play.append(playLabel);
+  row.append(play);
+
+  return row;
+}
+
+function appendResultSection(title, items, { origin, clear = false, showCount = true } = {}) {
+  if (!items.length) return null;
+
+  const section = document.createElement('section');
+  section.className = 'zp-section';
+  const head = document.createElement('div');
+  head.className = 'zp-section-head';
+  const heading = document.createElement('h3');
+  heading.textContent = title;
+  head.append(heading);
+  if (showCount) {
+    const count = document.createElement('span');
+    count.textContent = String(items.length);
+    head.append(count);
+  }
+  if (clear) {
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'zp-history-clear';
+    clearBtn.dataset.historyClear = '';
+    clearBtn.textContent = 'Очистить';
+    head.append(clearBtn);
+  }
+  section.append(head);
+
+  const list = document.createElement('div');
+  list.className = 'zp-list';
+  for (const item of items) list.append(makeResultRow(item, { origin }));
+  section.append(list);
+  els.searchResults.append(section);
+  return section;
+}
+
+function renderSearchIntro() {
+  els.searchResults.replaceChildren();
+  const box = document.createElement('div');
+  box.className = 'search-intro';
+  const ico = document.createElement('span');
+  ico.className = 'search-intro-ico';
+  ico.dataset.icon = 'search';
+  ico.innerHTML = ICONS.search;
+  const title = document.createElement('div');
+  title.className = 'search-intro-title';
+  title.textContent = 'Найдите трек по названию';
+  const text = document.createElement('div');
+  text.className = 'search-intro-text';
+  text.textContent =
+    'Результаты появятся здесь. Запущенное из поиска сохранится в истории и будет предлагаться в следующий раз.';
+  box.append(ico, title, text);
+  els.searchResults.append(box);
+}
+
 function renderSearchResults(data) {
   els.searchResults.replaceChildren();
   els.searchResults.scrollTop = 0;
@@ -862,65 +919,8 @@ function renderSearchResults(data) {
     const items = Array.isArray(sections[key]) ? sections[key] : [];
     if (!items.length) continue;
     total += items.length;
-
-    const section = document.createElement('section');
-    section.className = 'zp-section';
-    const head = document.createElement('div');
-    head.className = 'zp-section-head';
-    const title = document.createElement('h3');
-    title.textContent = sectionTitle(key);
-    const count = document.createElement('span');
-    count.textContent = String(items.length);
-    head.append(title, count);
-    section.append(head);
-
-    const list = document.createElement('div');
-    list.className = 'zp-list';
-    for (const item of items) {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'zp-item';
-      row.dataset.kind = item.kind;
-      row.dataset.id = item.id;
-      row.dataset.title = item.title || `ID ${item.id}`;
-      row.title = `Играть на «${speakerName(state.targetId)}»`;
-      row.setAttribute('aria-label', `Играть «${item.title || item.id}» на «${speakerName(state.targetId)}»`);
-
-      row.append(makeCover(item.cover, key === 'artists' ? 'heart' : key === 'tracks' ? 'play' : 'queue'));
-
-      const info = document.createElement('div');
-      info.className = 'zp-info';
-      const name = document.createElement('div');
-      name.className = 'zp-name';
-      name.textContent = item.title || `ID ${item.id}`;
-      const meta = document.createElement('div');
-      meta.className = 'zp-meta';
-      const bits = [];
-      if (item.subtitle) bits.push(item.subtitle);
-      if (item.duration) bits.push(fmtTime(item.duration));
-      if (item.explicit) bits.push('18+');
-      meta.textContent = bits.join(' · ') || (item.kind === 'track' ? 'Трек' : '');
-      info.append(name, meta);
-      row.append(info);
-
-      const play = document.createElement('span');
-      play.className = 'zp-play';
-      play.dataset.icon = 'playSmall';
-      play.innerHTML = ICONS.playSmall;
-      play.setAttribute('aria-hidden', 'true');
-      const playLabel = document.createElement('span');
-      playLabel.className = 'zp-play-label';
-      playLabel.textContent = 'Играть';
-      play.append(playLabel);
-      row.append(play);
-
-      list.append(row);
-    }
-    section.append(list);
-    els.searchResults.append(section);
+    appendResultSection(sectionTitle(key), items, { origin: 'search' });
   }
-
-  updateTargetLabels();
 
   if (!total) {
     setSearchStatus(`Ничего не найдено по запросу «${data?.query || ''}».`, 'none');
@@ -930,32 +930,61 @@ function renderSearchResults(data) {
   }
 }
 
+function renderHistory(items) {
+  els.searchResults.replaceChildren();
+  els.searchResults.scrollTop = 0;
+
+  const valid = (Array.isArray(items) ? items : []).filter(
+    (item) => item && item.kind && item.id,
+  );
+  if (!valid.length) {
+    renderSearchIntro();
+    setSearchStatus('', '');
+    return;
+  }
+
+  const frequent = valid.filter((item) => Number(item.count) >= 2).slice(0, 5);
+  const recent = valid.filter((item) => Number(item.count) < 2).slice(0, 10);
+
+  appendResultSection('Часто запускаете', frequent, { origin: 'history', clear: true });
+  appendResultSection('Недавние', recent, {
+    origin: 'history',
+    clear: !frequent.length,
+    showCount: false,
+  });
+
+  setSearchStatus('', '');
+}
+
 async function runSearch(query) {
   const q = String(query ?? '').trim();
+  if (!state.searchSpeakerId) return;
   if (q.length < 2) {
     toast('Введите хотя бы два символа', 'error');
     return;
   }
   const seq = ++state.searchSeq;
+  state.historySeq += 1;
   els.searchBtn.disabled = true;
   els.searchResults.replaceChildren();
   setSearchStatus('Ищем в каталоге Звука…', 'loading');
 
   try {
     const data = await api(`/api/search?q=${encodeURIComponent(q)}&limit=6`);
-    if (seq !== state.searchSeq) return;
+    if (seq !== state.searchSeq || !state.searchSpeakerId) return;
     renderSearchResults(data);
   } catch (err) {
     if (seq !== state.searchSeq) return;
     els.searchResults.replaceChildren();
     setSearchStatus('', '');
+    els.linkDetails.open = true;
     const box = document.createElement('div');
     box.className = 'zp-error';
     const message = document.createElement('div');
     message.textContent = err.message;
     const hint = document.createElement('div');
     hint.className = 'zp-error-hint';
-    hint.append('Поиск — не единственный путь: вставьте ссылку на zvuk.com или числовой ID в поле выше. ');
+    hint.append('Поиск — не единственный путь: вставьте ссылку на zvuk.com или числовой ID в разделе ниже. ');
     const link = document.createElement('a');
     link.href = `https://zvuk.com/search?query=${encodeURIComponent(q)}`;
     link.target = '_blank';
@@ -969,15 +998,97 @@ async function runSearch(query) {
   }
 }
 
-async function playContent(payload, label, targetId, button = null) {
-  const id = targetId || els.targetSelect.value || state.targetId;
+async function loadHistory() {
+  const speakerId = state.searchSpeakerId;
+  if (!speakerId) return;
+  const seq = ++state.historySeq;
+  els.searchResults.replaceChildren();
+  setSearchStatus('Загружаем историю…', 'loading');
+
+  try {
+    const data = await api('/api/history?limit=24');
+    if (seq !== state.historySeq || state.searchSpeakerId !== speakerId) return;
+    renderHistory(data?.items);
+  } catch {
+    if (seq !== state.historySeq) return;
+    renderSearchIntro();
+    setSearchStatus('История сейчас недоступна — поиск работает', 'none');
+  }
+}
+
+async function clearHistory() {
+  const seq = ++state.historySeq;
+  try {
+    await api('/api/history', { method: 'DELETE' });
+    if (seq !== state.historySeq) return;
+    renderSearchIntro();
+    toast('История поиска очищена');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+/** Вернуть пользователя к карточке колонки, из которой открывали поиск. */
+function focusCard(id) {
+  const card = cards.get(id);
+  if (!card?.node) return;
+  const node = card.node;
+  node.classList.remove('flash');
+  void node.offsetWidth;
+  node.classList.add('flash');
+  window.setTimeout(() => node.classList.remove('flash'), 1800);
+  if (typeof node.scrollIntoView === 'function') {
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function closeSearch() {
+  const speakerId = state.searchSpeakerId;
+  state.searchSpeakerId = null;
+  state.searchSeq += 1;
+  state.historySeq += 1;
+  els.searchInput.value = '';
+  els.searchClear.hidden = true;
+  els.linkInput.value = '';
+  els.linkDetails.open = false;
+  els.searchResults.replaceChildren();
+  els.searchBtn.disabled = false;
+  closeDialog(els.searchDialog);
+  focusCard(speakerId);
+}
+
+function openSearch(sp) {
+  state.searchSpeakerId = sp.id;
+  state.searchSeq += 1;
+  state.historySeq += 1;
+  els.searchTitle.textContent = `Найти · ${sp.name}`;
+  els.searchTarget.textContent = `Выбранный трек заиграет на «${sp.name}»`;
+  els.searchInput.value = '';
+  els.searchClear.hidden = true;
+  els.linkInput.value = '';
+  els.linkDetails.open = false;
+  els.searchResults.replaceChildren();
+  clearSearchStatus();
+  els.searchBtn.disabled = false;
+  openDialog(els.searchDialog);
+  loadHistory();
+  window.setTimeout(() => {
+    if (state.searchSpeakerId === sp.id) els.searchInput.focus();
+  }, 60);
+}
+
+async function playContent(payload, label, targetId, button = null, extra = {}) {
+  const id = targetId;
   if (!id) {
     toast('Нет подключённой колонки', 'error');
     return false;
   }
   if (button) button.classList.add('busy');
+  const body = { ...payload };
+  if (extra.origin) body.origin = extra.origin;
+  if (extra.meta) body.meta = extra.meta;
   try {
-    const data = await api(`/api/speakers/${id}/play`, { method: 'POST', body: payload });
+    const data = await api(`/api/speakers/${id}/play`, { method: 'POST', body });
     if (data.state) applySnapshot(data.state);
     const title = label || data.content?.title || `ID ${data.content?.id || ''}`;
     const target = speakerName(id);
@@ -997,37 +1108,76 @@ async function playContent(payload, label, targetId, button = null) {
   }
 }
 
-function bindZvuk() {
+function rowMeta(row) {
+  return {
+    kind: row.dataset.kind,
+    id: row.dataset.id,
+    title: row.dataset.title || null,
+    subtitle: row.dataset.subtitle || null,
+    cover: row.dataset.cover || null,
+    duration: Number(row.dataset.duration) || null,
+  };
+}
+
+function bindSearch() {
   els.searchForm.addEventListener('submit', (event) => {
     event.preventDefault();
     runSearch(els.searchInput.value);
   });
 
+  els.searchInput.addEventListener('input', () => {
+    els.searchClear.hidden = !els.searchInput.value.trim();
+    if (!els.searchInput.value.trim()) {
+      state.searchSeq += 1;
+      loadHistory();
+    } else {
+      state.historySeq += 1;
+      clearSearchStatus();
+    }
+  });
+
+  els.searchClear.addEventListener('click', () => closeSearch());
+  els.closeSearch.addEventListener('click', () => closeSearch());
+
+  els.searchDialog.addEventListener('close', () => {
+    if (!state.searchSpeakerId) return;
+    const speakerId = state.searchSpeakerId;
+    state.searchSpeakerId = null;
+    state.searchSeq += 1;
+    state.historySeq += 1;
+    focusCard(speakerId);
+  });
+
   els.linkForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const value = els.linkInput.value.trim();
+    const speakerId = state.searchSpeakerId;
     if (!value) {
       toast('Вставьте ссылку zvuk.com или ID', 'error');
       return;
     }
-    const ok = await playContent({ url: value }, value, els.targetSelect.value, els.linkBtn);
-    if (ok) els.linkInput.value = '';
+    if (!speakerId) return;
+    const ok = await playContent({ url: value }, value, speakerId, els.linkBtn);
+    if (ok) closeSearch();
   });
 
-  els.targetSelect.addEventListener('change', () => {
-    state.targetId = els.targetSelect.value;
-    updateTargetLabels();
-  });
-
-  els.searchResults.addEventListener('click', (event) => {
+  els.searchResults.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-history-clear]')) {
+      await clearHistory();
+      return;
+    }
     const row = event.target.closest('.zp-item');
     if (!row || row.classList.contains('busy')) return;
-    playContent(
+    const speakerId = state.searchSpeakerId;
+    if (!speakerId) return;
+    const ok = await playContent(
       { kind: row.dataset.kind, id: row.dataset.id },
       row.dataset.title,
-      els.targetSelect.value,
+      speakerId,
       row,
+      { origin: row.dataset.origin, meta: rowMeta(row) },
     );
+    if (ok) closeSearch();
   });
 }
 
@@ -1348,7 +1498,7 @@ function init() {
   hydrateIcons(document);
   bindGroup();
   bindDialog();
-  bindZvuk();
+  bindSearch();
   bindQueue();
   connectEvents();
   poll();

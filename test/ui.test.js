@@ -190,14 +190,40 @@ test('UI: мультирум — кнопки на карточках, чипы 
   }
 });
 
-test('UI: поиск Звука, отправка на колонку и очередь', async () => {
+test('UI: поиск из карточки колонки, история и возврат к карточке', async () => {
   const snapshot = {
     serverTime: Date.now(),
     speakers: [speaker(10, 'Кухня'), speaker(11, 'Спальня')],
   };
   const requests = [];
+  const historyCalls = [];
   const handler = async (url, options = {}) => {
     const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/history') {
+      const method = options.method || 'GET';
+      historyCalls.push(method);
+      if (method === 'DELETE') {
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              kind: 'track',
+              id: '9',
+              title: 'Частый трек',
+              subtitle: 'Кино',
+              duration: 180,
+              count: 4,
+            },
+            { kind: 'playlist', id: '42', title: 'Недавний плейлист', subtitle: '20 треков', count: 1 },
+            { kind: 'track', id: '10', title: 'Ещё один недавний', count: 1 },
+          ],
+        }),
+      };
+    }
     if (path === '/api/search') {
       return {
         ok: true,
@@ -220,7 +246,7 @@ test('UI: поиск Звука, отправка на колонку и оче�
       };
     }
     if (/^\/api\/speakers\/\d+\/play$/.test(path)) {
-      requests.push(JSON.parse(options.body || '{}'));
+      requests.push({ url: String(url), body: JSON.parse(options.body || '{}') });
       return {
         ok: true,
         status: 200,
@@ -248,58 +274,120 @@ test('UI: поиск Звука, отправка на колонку и оче�
     return null;
   };
 
-  const { dom, window, calls } = await boot(snapshot, handler);
+  const { dom, window } = await boot(snapshot, handler);
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const isOpen = (el) => Boolean(el.open || el.hasAttribute('open'));
 
   try {
     const doc = window.document;
-    const select = doc.querySelector('#targetSelect');
-    assert.equal(select.disabled, false);
-    assert.deepEqual([...select.options].map((o) => o.textContent), ['Кухня', 'Спальня']);
-    assert.match(doc.querySelector('#targetHint').textContent, /сюда пойдёт/);
-    assert.match(doc.querySelector('#playHintText').textContent, /Кухня/);
+    const cards = [...doc.querySelectorAll('.card')];
+    assert.equal(doc.querySelector('#zvukPanel'), null, 'глобальная панель убрана');
+    assert.equal(cards.length, 2);
 
-    // Поиск.
+    // Поиск открывается прямо с карточки и явно привязан к её колонке.
+    const searchBtn = cards[0].querySelector('[data-action="search"]');
+    assert.ok(searchBtn, 'на карточке есть кнопка «Найти»');
+    assert.equal(searchBtn.disabled, false);
+    searchBtn.click();
+    await wait(60);
+
+    const dialog = doc.querySelector('#searchDialog');
+    assert.ok(isOpen(dialog));
+    assert.match(doc.querySelector('#searchTitle').textContent, /Кухня/);
+    assert.match(doc.querySelector('#searchTarget').textContent, /Кухня/);
+    assert.ok(historyCalls.includes('GET'));
+
+    // Пустой запрос показывает историю: сначала частое, затем недавнее.
+    let rows = [...doc.querySelectorAll('#searchResults .zp-item')];
+    assert.equal(rows.length, 3);
+    assert.equal(rows[0].dataset.origin, 'history');
+    assert.equal(rows[0].dataset.id, '9');
+    assert.match(rows[0].querySelector('.zp-meta').textContent, /×4/);
+    assert.deepEqual(
+      [...doc.querySelectorAll('.zp-section-head h3')].map((el) => el.textContent),
+      ['Часто запускаете', 'Недавние'],
+    );
+
+    // Поиск по названию.
     doc.querySelector('#searchInput').value = 'кино';
     doc.querySelector('#searchForm').dispatchEvent(
       new window.Event('submit', { bubbles: true, cancelable: true }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await wait(60);
 
-    const rows = [...doc.querySelectorAll('.zp-item')];
+    rows = [...doc.querySelectorAll('#searchResults .zp-item')];
     assert.equal(rows.length, 3);
     assert.equal(rows[0].querySelector('.zp-name').textContent, 'Группа крови');
     assert.equal(rows[0].querySelector('.zp-play-label').textContent, 'Играть');
     assert.match(rows[0].title, /Кухня/);
     assert.equal(doc.querySelectorAll('.zp-cover.noart').length, 3);
     assert.equal(doc.querySelectorAll('.zp-cover.empty').length, 0);
-    assert.ok(calls.some((c) => c.url.includes('/api/search?q=')));
 
-    // Переключение колонки меняет подсказку и адресацию запуска.
-    select.value = '11';
-    select.dispatchEvent(new window.Event('change', { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.match(doc.querySelector('#playHintText').textContent, /Спальня/);
-    assert.match(rows[0].title, /Спальня/);
-
-    // Клик по треку отправляет его на выбранную колонку.
+    // Запуск уходит на колонку из карточки, с метаданными и origin=search.
     rows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    assert.deepEqual(requests.at(-1), { kind: 'track', id: '1' });
-    assert.match(calls.at(-1).url, /\/api\/speakers\/11\/play$/);
+    await wait(60);
 
-    // Очередь.
-    doc.querySelector('[data-action="queue"]').click();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const dialog = doc.querySelector('#queueDialog');
-    assert.ok(dialog.hasAttribute('open') || dialog.open);
+    assert.equal(requests.at(-1).url, '/api/speakers/10/play');
+    assert.deepEqual(requests.at(-1).body, {
+      kind: 'track',
+      id: '1',
+      origin: 'search',
+      meta: {
+        kind: 'track',
+        id: '1',
+        title: 'Группа крови',
+        subtitle: 'Кино',
+        cover: null,
+        duration: 250,
+      },
+    });
+    assert.equal(isOpen(dialog), false);
+    assert.ok(cards[0].classList.contains('flash'), 'после запуска подсвечивается карточка');
+
+    // Повторное открытие и явная очистка возвращают к карточке.
+    searchBtn.click();
+    await wait(40);
+    const reopenInput = doc.querySelector('#searchInput');
+    reopenInput.value = 'кино';
+    reopenInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.equal(doc.querySelector('#searchClear').hidden, false);
+    doc.querySelector('#searchClear').click();
+    await wait(20);
+    assert.equal(isOpen(dialog), false);
+
+    // Очистка истории.
+    searchBtn.click();
+    await wait(60);
+    const clearHistory = doc.querySelector('[data-history-clear]');
+    assert.ok(clearHistory, 'в истории есть кнопка очистки');
+    clearHistory.click();
+    await wait(40);
+    assert.ok(historyCalls.includes('DELETE'));
+    assert.ok(doc.querySelector('.search-intro'), 'после очистки показывается приглашение к поиску');
+
+    // Ссылка/ID работают без каталога и не попадают в историю.
+    doc.querySelector('#linkDetails').open = true;
+    doc.querySelector('#linkInput').value = 'https://zvuk.com/track/5';
+    doc.querySelector('#linkForm').dispatchEvent(
+      new window.Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await wait(40);
+    assert.deepEqual(requests.at(-1).body, { url: 'https://zvuk.com/track/5' });
+    assert.equal(isOpen(dialog), false);
+
+    // Очередь по-прежнему открывается с карточки.
+    cards[0].querySelector('[data-action="queue"]').click();
+    await wait(60);
+    const queueDialog = doc.querySelector('#queueDialog');
+    assert.ok(isOpen(queueDialog));
     const queueRows = [...doc.querySelectorAll('.queue-item')];
     assert.equal(queueRows.length, 2);
     assert.equal(queueRows[0].classList.contains('current'), true);
     assert.match(doc.querySelector('#queueContext').textContent, /Мой плейлист/);
 
     queueRows[1].querySelector('[data-queue-play]').click();
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    assert.deepEqual(requests.at(-1), { kind: 'track', id: '1002' });
+    await wait(40);
+    assert.deepEqual(requests.at(-1).body, { kind: 'track', id: '1002' });
   } finally {
     dom.window.close();
   }

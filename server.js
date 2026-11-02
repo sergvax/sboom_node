@@ -11,14 +11,18 @@ import { Store } from './lib/store.js';
 import { SpeakerManager } from './lib/manager.js';
 import { discover } from './lib/discovery.js';
 import { ZvukClient } from './lib/zvuk.js';
+import { SearchHistory } from './lib/history.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data', 'speakers.json');
+const HISTORY_FILE =
+  process.env.HISTORY_FILE || path.join(path.dirname(DATA_FILE), 'search-history.json');
 
 const store = new Store(DATA_FILE);
 const zvuk = new ZvukClient({ dataDir: path.join(__dirname, 'data') });
+const history = new SearchHistory({ file: HISTORY_FILE });
 const manager = new SpeakerManager({ store, zvuk });
 
 const app = express();
@@ -64,9 +68,38 @@ app.get('/api/speakers/:id/queue', wrap(async (req, res) => {
   res.json(await manager.getQueue(req.params.id));
 }));
 
+// История запусков из поиска: только то, что пользователь сам нашёл и включил.
+app.get('/api/history', wrap(async (req, res) => {
+  const limit = Math.max(1, Math.min(60, Number(req.query.limit) || 30));
+  res.json({ items: await history.list({ limit }) });
+}));
+
+app.delete('/api/history', wrap(async (_req, res) => {
+  await history.clear();
+  res.json({ ok: true });
+}));
+
 app.post('/api/speakers/:id/play', wrap(async (req, res) => {
-  const { kind, id, url } = req.body || {};
+  const { kind, id, url, origin, meta } = req.body || {};
   const result = await manager.playContent(req.params.id, { kind, id, url });
+
+  // В историю попадают только осознанные запуски из поиска/истории.
+  if (origin === 'search' || origin === 'history') {
+    const source = meta && typeof meta === 'object' ? meta : {};
+    await history
+      .record({
+        kind: result.content?.kind || source.kind,
+        id: result.content?.id || source.id,
+        title: source.title || result.content?.title,
+        subtitle: source.subtitle || result.content?.subtitle,
+        cover: source.cover || result.content?.cover,
+        duration: source.duration ?? result.content?.duration,
+      })
+      .catch(() => {
+        /* история не должна ломать запуск */
+      });
+  }
+
   res.json({ ...result, state: manager.snapshot() });
 }));
 

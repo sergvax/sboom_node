@@ -65,59 +65,6 @@
         </div>
       </section>
 
-      <section class="zvuk-panel" id="zvukPanel">
-        <div class="zp-head">
-          <div class="zp-heading">
-            <div class="zp-title">Звук</div>
-            <div class="zp-sub">Найдите трек или вставьте ссылку — играть будет колонка из своей сессии</div>
-          </div>
-        </div>
-
-        <div class="zp-target-bar">
-          <span class="zp-target-ico" data-icon="speaker" aria-hidden="true"></span>
-          <div class="zp-target-copy">
-            <span class="zp-target-label">Играть на</span>
-            <span class="zp-target-hint" id="targetHint">выберите колонку</span>
-          </div>
-          <label class="zp-target-select">
-            <select id="targetSelect" aria-label="Колонка для воспроизведения"></select>
-          </label>
-        </div>
-
-        <form class="zp-search" id="searchForm" autocomplete="off">
-          <span class="zp-ico" data-icon="search" aria-hidden="true"></span>
-          <input
-            id="searchInput"
-            name="q"
-            type="search"
-            placeholder="Трек, плейлист, исполнитель, альбом…"
-            maxlength="120"
-            aria-label="Поиск в каталоге Звука"
-          />
-          <button class="btn accent small" id="searchBtn" type="submit">Найти</button>
-        </form>
-
-        <form class="zp-link" id="linkForm" autocomplete="off">
-          <span class="zp-ico" data-icon="link" aria-hidden="true"></span>
-          <input
-            id="linkInput"
-            name="url"
-            type="text"
-            placeholder="Ссылка zvuk.com/track/… или числовой ID"
-            maxlength="300"
-            aria-label="Ссылка или ID Звука"
-          />
-          <button class="btn small" id="linkBtn" type="submit">Отправить</button>
-        </form>
-
-        <div class="zp-status" id="searchStatus" hidden></div>
-        <div class="zp-play-hint" id="playHint" hidden>
-          <span data-icon="speaker" aria-hidden="true"></span>
-          <span id="playHintText"></span>
-        </div>
-        <div class="zp-results" id="searchResults"></div>
-      </section>
-
       <section class="grid" id="grid" aria-live="polite"></section>
 
       <section class="empty" id="empty" hidden>
@@ -195,6 +142,68 @@
       </div>
     </dialog>
 
+    <dialog class="dialog search-dialog" id="searchDialog">
+      <div class="dialog-inner">
+        <header class="dialog-head">
+          <div class="search-heading">
+            <h2 id="searchTitle">Найти музыку</h2>
+            <div class="search-sub" id="searchTarget"></div>
+          </div>
+          <button
+            class="icon-btn"
+            type="button"
+            id="closeSearch"
+            title="Закрыть и вернуться к колонке"
+            aria-label="Закрыть поиск"
+          >
+            <span data-icon="x"></span>
+          </button>
+        </header>
+
+        <form class="zp-search" id="searchForm" autocomplete="off">
+          <span class="zp-ico" data-icon="search" aria-hidden="true"></span>
+          <input
+            id="searchInput"
+            name="q"
+            type="search"
+            placeholder="Трек, плейлист, исполнитель…"
+            maxlength="120"
+            aria-label="Поиск в каталоге Звука"
+          />
+          <button
+            class="search-clear"
+            type="button"
+            id="searchClear"
+            title="Очистить и вернуться к колонке"
+            aria-label="Очистить поиск и вернуться к колонке"
+            hidden
+          >
+            <span data-icon="x"></span>
+          </button>
+          <button class="btn accent small" id="searchBtn" type="submit">Найти</button>
+        </form>
+
+        <div class="zp-status" id="searchStatus" hidden></div>
+        <div class="zp-results" id="searchResults"></div>
+
+        <details class="zp-fallback" id="linkDetails">
+          <summary>Поиск не работает? Вставьте ссылку или ID Звука</summary>
+          <form class="zp-link" id="linkForm" autocomplete="off">
+            <span class="zp-ico" data-icon="link" aria-hidden="true"></span>
+            <input
+              id="linkInput"
+              name="url"
+              type="text"
+              placeholder="Ссылка zvuk.com/track/… или числовой ID"
+              maxlength="300"
+              aria-label="Ссылка или ID Звука"
+            />
+            <button class="btn small" id="linkBtn" type="submit">Отправить</button>
+          </form>
+        </details>
+      </div>
+    </dialog>
+
     <div class="toasts" id="toasts"></div>
 
     <template id="cardTpl">
@@ -263,6 +272,9 @@
           <button class="like-btn" data-action="like" title="Нравится"><span data-icon="heart"></span></button>
           <button class="link-btn mr-btn" data-action="multiroom" title="Мультирум">
             <span data-icon="multiroom"></span><span class="mr-label">Мультирум</span>
+          </button>
+          <button class="link-btn search-btn" data-action="search" title="Найти музыку и включить на этой колонке">
+            <span data-icon="search"></span> Найти
           </button>
           <button class="link-btn queue-btn" data-action="queue" title="Очередь колонки">
             <span data-icon="queue"></span> Очередь
