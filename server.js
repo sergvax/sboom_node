@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './lib/store.js';
 import { SpeakerManager } from './lib/manager.js';
 import { discover } from './lib/discovery.js';
+import { ZvukClient } from './lib/zvuk.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8080);
@@ -17,7 +18,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data', 'speakers.json');
 
 const store = new Store(DATA_FILE);
-const manager = new SpeakerManager({ store });
+const zvuk = new ZvukClient({ dataDir: path.join(__dirname, 'data') });
+const manager = new SpeakerManager({ store, zvuk });
 
 const app = express();
 app.disable('etag');
@@ -29,7 +31,13 @@ const wrap = (fn) => async (req, res) => {
     await fn(req, res);
   } catch (err) {
     const message = err?.message || 'Внутренняя ошибка';
-    const status = /не найдена|не найдено/i.test(message) ? 404 : 400;
+    const explicit = Number(err?.status);
+    const status =
+      Number.isInteger(explicit) && explicit >= 400 && explicit <= 599
+        ? explicit
+        : /не найдена|не найдено/i.test(message)
+          ? 404
+          : 400;
     res.status(status).json({ error: message });
   }
 };
@@ -40,6 +48,26 @@ app.get('/api/state', wrap(async (_req, res) => {
 
 app.get('/api/discover', wrap(async (_req, res) => {
   res.json({ devices: await discover(4000) });
+}));
+
+// ───────────────────────────── каталог Звука ─────────────────────────────
+
+app.get('/api/search', wrap(async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) throw new Error('Введите поисковый запрос');
+  const limit = Math.max(1, Math.min(12, Number(req.query.limit) || 6));
+  const result = await zvuk.search(query, { limit });
+  res.json(result);
+}));
+
+app.get('/api/speakers/:id/queue', wrap(async (req, res) => {
+  res.json(await manager.getQueue(req.params.id));
+}));
+
+app.post('/api/speakers/:id/play', wrap(async (req, res) => {
+  const { kind, id, url } = req.body || {};
+  const result = await manager.playContent(req.params.id, { kind, id, url });
+  res.json({ ...result, state: manager.snapshot() });
 }));
 
 app.post('/api/speakers', wrap(async (req, res) => {

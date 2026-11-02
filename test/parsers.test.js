@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseState, parseTrack, trackFromState, coverUrl } from '../lib/parsers.js';
+import { parseQueue, parseState, parseTrack, trackFromState, coverUrl } from '../lib/parsers.js';
 import { parseHostInput } from '../lib/manager.js';
+import { field } from '../lib/tlv.js';
+import { OP_GET_PLAYING_QUEUE } from '../lib/protocol.js';
 
 const pushTrack = Buffer.concat([
   Buffer.from([0, 0]),
@@ -130,6 +132,59 @@ test('trackFromState: радио в GET_STATE без trackId', () => {
   assert.equal(track.station_name, 'Наше радио');
   assert.equal(track.media_source, 'RADIO');
   assert.equal(track.playing, true);
+});
+
+test('trackFromState: контекст плейлиста из info', () => {
+  const track = trackFromState({
+    background_apps: [
+      {
+        app_info: { systemName: 'music' },
+        state: {
+          player: {
+            playing: true,
+            position: 5,
+            duration: 200,
+            info: {
+              title: 'Song',
+              trackId: 123,
+              playlistId: 456,
+              playlistTitle: 'Лучшее',
+              playlistType: 'user',
+              artists: [{ id: 7, name: 'Artist' }],
+              releases: [{ id: 88, name: 'Album' }],
+            },
+          },
+        },
+      },
+    ],
+  });
+  assert.ok(track);
+  assert.equal(track.playlist_id, '456');
+  assert.equal(track.playlist_title, 'Лучшее');
+  assert.equal(track.playlist_type, 'user');
+  assert.equal(track.release_id, '88');
+  assert.deepEqual(track.artist_ids, ['7']);
+});
+
+test('parseQueue: JSON-строка op=17 и отсев мусора', () => {
+  const payload = JSON.stringify([
+    { explicit: true, trackId: 1001 },
+    { explicit: false, trackId: '1002' },
+    { explicit: false, trackId: 1001 },
+    { trackId: 'not-a-number' },
+    null,
+  ]);
+  const raw = field(5, 2, field(OP_GET_PLAYING_QUEUE, 2, field(5, 2, payload)));
+  const queue = parseQueue(raw);
+  assert.deepEqual(queue, [
+    { trackId: '1001', explicit: true },
+    { trackId: '1002', explicit: false },
+  ]);
+});
+
+test('parseQueue: пустой ответ → []', () => {
+  assert.deepEqual(parseQueue(Buffer.alloc(0)), []);
+  assert.deepEqual(parseQueue(field(OP_GET_PLAYING_QUEUE, 2, Buffer.alloc(0))), []);
 });
 
 test('parseHostInput: нормализация IP, порта и URL', () => {

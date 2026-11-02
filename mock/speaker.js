@@ -62,6 +62,10 @@ export async function startMockSpeaker(opts = {}) {
     shuffle: false,
     repeat: 'none',
     liked: false,
+    playlistId: null,
+    playlistTitle: null,
+    playlistType: null,
+    queue: ['1001', '1002', '1003'],
   };
 
   const position = () => {
@@ -93,6 +97,9 @@ export async function startMockSpeaker(opts = {}) {
             info: {
               title: st.title,
               trackId: st.trackId,
+              playlistId: st.playlistId,
+              playlistTitle: st.playlistTitle,
+              playlistType: st.playlistType,
               artists: st.artists.map((name, i) => ({ id: String(i + 1), name })),
               releases: [{ id: st.releaseId, name: st.album }],
               provider: 'zvuk',
@@ -119,6 +126,9 @@ export async function startMockSpeaker(opts = {}) {
     shuffle: st.shuffle,
     title: st.title,
     trackId: st.trackId,
+    playlistId: st.playlistId,
+    playlistTitle: st.playlistTitle,
+    playlistType: st.playlistType,
   });
 
   const reply = (ws, msgId, inner) => {
@@ -133,13 +143,30 @@ export async function startMockSpeaker(opts = {}) {
   };
 
   const playDeeplink = (ws, msgId, deeplink) => {
-    const match = /[?&]tid=(\d+)/.exec(String(deeplink || ''));
-    if (!match) {
+    const raw = String(deeplink || '');
+    const tid = /[?&]tid=(\d+)/.exec(raw);
+    const pid = /[?&]pid=(\d+)/.exec(raw);
+    const pt = /[?&]pt=([a-z]+)/i.exec(raw)?.[1]?.toLowerCase() || 'track';
+
+    if (tid) {
+      st.trackId = tid[1];
+      st.title = `Mock Track ${st.trackId}`;
+      st.playlistId = null;
+      st.playlistTitle = pt === 'podcast' ? 'Mock Podcast' : null;
+      st.playlistType = pt === 'podcast' ? 'podcast' : null;
+      st.queue = [st.trackId, String(Number(st.trackId) + 1), String(Number(st.trackId) + 2)];
+    } else if (pid) {
+      st.playlistId = pid[1];
+      st.playlistTitle = `Mock ${pt} ${pid[1]}`;
+      st.playlistType = pt;
+      st.trackId = String(4000 + Number(pid[1]) % 1000);
+      st.title = `Mock ${pt} track`;
+      st.queue = [st.trackId, String(Number(st.trackId) + 1), String(Number(st.trackId) + 2)];
+    } else {
       replyAction(ws, msgId, field(1, 2, 'BAD DEEPLINK'));
       return;
     }
-    st.trackId = match[1];
-    st.title = `Mock Track ${st.trackId}`;
+
     st.position = 0;
     st.positionAt = Date.now();
     st.playing = true;
@@ -202,6 +229,14 @@ export async function startMockSpeaker(opts = {}) {
       }
       if ('10' in req) {
         reply(ws, msgId, field(10, 2, trackJson()));
+        return;
+      }
+      if ('17' in req) {
+        const queue = st.queue.map((trackId) => ({
+          explicit: false,
+          trackId: Number(trackId),
+        }));
+        reply(ws, msgId, field(17, 2, field(5, 2, JSON.stringify(queue))));
         return;
       }
       if ('14' in req) {

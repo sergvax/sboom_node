@@ -17,6 +17,9 @@ const ICONS = {
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
   multiroom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8.5" width="7" height="11" rx="2"/><circle cx="6.5" cy="16.2" r="1.3"/><path d="M14.5 7.5a6 6 0 0 1 0 9"/><path d="M18 4.5a10.5 10.5 0 0 1 0 15"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.2"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>',
+  queue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="16" y2="7"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="17" x2="12" y2="17"/><path d="M19 13v7"/><path d="m16.5 17.5 2.5 2.5 2.5-2.5"/></svg>',
+  playSmall: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72c0 .84.92 1.35 1.63.9l10.6-6.86a1.08 1.08 0 0 0 0-1.8L9.63 4.24A1.08 1.08 0 0 0 8 5.14Z"/></svg>',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -34,6 +37,23 @@ const els = {
   discoverList: $('#discoverList'),
   toasts: $('#toasts'),
   serverPill: $('#serverPill'),
+  zvukPanel: $('#zvukPanel'),
+  targetSelect: $('#targetSelect'),
+  searchForm: $('#searchForm'),
+  searchInput: $('#searchInput'),
+  searchBtn: $('#searchBtn'),
+  searchStatus: $('#searchStatus'),
+  searchResults: $('#searchResults'),
+  linkForm: $('#linkForm'),
+  linkInput: $('#linkInput'),
+  linkBtn: $('#linkBtn'),
+  queueDialog: $('#queueDialog'),
+  queueTitle: $('#queueTitle'),
+  queueContext: $('#queueContext'),
+  queueStatus: $('#queueStatus'),
+  queueList: $('#queueList'),
+  queueRefresh: $('#queueRefresh'),
+  closeQueue: $('#closeQueue'),
 };
 
 const state = {
@@ -43,6 +63,9 @@ const state = {
   offset: 0,
   groupDragUntil: 0,
   mrBusy: false,
+  targetId: null,
+  searchSeq: 0,
+  queueSpeakerId: null,
 };
 
 const cards = new Map();
@@ -165,6 +188,7 @@ function createCard(sp) {
     volRange: $('.vol-range', node),
     volVal: $('.vol-val', node),
     like: $('.like-btn', node),
+    queueBtn: $('[data-action="queue"]', node),
     multiBtn: $('.mr-btn', node),
     multiIcon: $('.mr-btn [data-icon]', node),
     multiLabel: $('.mr-label', node),
@@ -259,6 +283,37 @@ function render() {
   }
 
   renderGroup(list);
+  renderTargets(list);
+}
+
+function renderTargets(list) {
+  const connected = (list || []).filter((s) => s.status === 'connected');
+  const select = els.targetSelect;
+  const previous = state.targetId || select.value;
+  select.replaceChildren();
+
+  if (!connected.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Нет колонок в сети';
+    select.append(option);
+    select.disabled = true;
+    state.targetId = null;
+    return;
+  }
+
+  for (const sp of connected) {
+    const option = document.createElement('option');
+    option.value = sp.id;
+    option.textContent = sp.name;
+    select.append(option);
+  }
+  select.disabled = false;
+  const chosen = connected.some((s) => String(s.id) === String(previous))
+    ? String(previous)
+    : String(connected[0].id);
+  select.value = chosen;
+  state.targetId = chosen;
 }
 
 function updateCard(c, sp) {
@@ -322,6 +377,8 @@ function updateCard(c, sp) {
 
   c.like.classList.toggle('active', Boolean(t?.liked));
   c.like.title = t?.liked ? 'Убрать лайк' : 'Нравится';
+  c.queueBtn.disabled = !online;
+  c.queueBtn.title = online ? 'Очередь колонки' : 'Колонка не в сети';
 
   updateMultiButton(c, sp, { online, inGroup, isSource });
 
@@ -523,6 +580,9 @@ function onAction(action, sp, refs, target) {
     case 'multiroom':
       onMultiroom(sp);
       break;
+    case 'queue':
+      openQueue(sp);
+      break;
     case 'pair':
       startPair(sp);
       break;
@@ -708,6 +768,376 @@ async function sendGroupVolume(value) {
   }
 }
 
+/* ── Звук: поиск и отправка ──────────────────────────── */
+
+function speakerName(id) {
+  return state.speakers.find((sp) => String(sp.id) === String(id))?.name || 'колонку';
+}
+
+function setSearchStatus(text, kind = '') {
+  els.searchStatus.hidden = !text;
+  els.searchStatus.className = `zp-status ${kind}`;
+  els.searchStatus.replaceChildren();
+  if (text) els.searchStatus.textContent = text;
+}
+
+function clearSearchStatus() {
+  setSearchStatus('');
+}
+
+function sectionTitle(key) {
+  return {
+    tracks: 'Треки',
+    playlists: 'Плейлисты',
+    artists: 'Исполнители',
+    releases: 'Альбомы',
+  }[key] || key;
+}
+
+function makeCover(src, fallbackIcon = 'queue') {
+  const box = document.createElement('div');
+  box.className = 'zp-cover';
+  const addFallback = () => {
+    box.classList.add('empty');
+    const ico = document.createElement('span');
+    ico.dataset.icon = fallbackIcon;
+    ico.innerHTML = ICONS[fallbackIcon] || '';
+    box.append(ico);
+  };
+  if (src) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.src = src;
+    img.addEventListener('error', () => {
+      img.remove();
+      addFallback();
+    });
+    box.append(img);
+  } else {
+    addFallback();
+  }
+  return box;
+}
+
+function renderSearchResults(data) {
+  els.searchResults.replaceChildren();
+  const sections = data?.sections || {};
+  const order = ['tracks', 'playlists', 'artists', 'releases'];
+  let total = 0;
+
+  for (const key of order) {
+    const items = Array.isArray(sections[key]) ? sections[key] : [];
+    if (!items.length) continue;
+    total += items.length;
+
+    const section = document.createElement('section');
+    section.className = 'zp-section';
+    const head = document.createElement('div');
+    head.className = 'zp-section-head';
+    const title = document.createElement('h3');
+    title.textContent = sectionTitle(key);
+    const count = document.createElement('span');
+    count.textContent = String(items.length);
+    head.append(title, count);
+    section.append(head);
+
+    const list = document.createElement('div');
+    list.className = 'zp-list';
+    for (const item of items) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'zp-item';
+      row.dataset.kind = item.kind;
+      row.dataset.id = item.id;
+      row.dataset.title = item.title || `ID ${item.id}`;
+      row.title = `Играть на «${els.targetSelect.selectedOptions?.[0]?.textContent || 'колонке'}»`;
+
+      row.append(makeCover(item.cover, key === 'artists' ? 'heart' : key === 'tracks' ? 'play' : 'queue'));
+
+      const info = document.createElement('div');
+      info.className = 'zp-info';
+      const name = document.createElement('div');
+      name.className = 'zp-name';
+      name.textContent = item.title || `ID ${item.id}`;
+      const meta = document.createElement('div');
+      meta.className = 'zp-meta';
+      const bits = [];
+      if (item.subtitle) bits.push(item.subtitle);
+      if (item.duration) bits.push(fmtTime(item.duration));
+      if (item.explicit) bits.push('18+');
+      meta.textContent = bits.join(' · ') || (item.kind === 'track' ? 'Трек' : '');
+      info.append(name, meta);
+      row.append(info);
+
+      const play = document.createElement('span');
+      play.className = 'zp-play';
+      play.dataset.icon = 'playSmall';
+      play.innerHTML = ICONS.playSmall;
+      row.append(play);
+
+      list.append(row);
+    }
+    section.append(list);
+    els.searchResults.append(section);
+  }
+
+  if (!total) {
+    setSearchStatus(`Ничего не найдено по запросу «${data?.query || ''}».`, 'empty');
+  } else {
+    const suffix = data?.stale ? ' · показаны сохранённые результаты' : '';
+    setSearchStatus(`Найдено: ${total}${suffix}`, 'ok');
+  }
+}
+
+async function runSearch(query) {
+  const q = String(query ?? '').trim();
+  if (q.length < 2) {
+    toast('Введите хотя бы два символа', 'error');
+    return;
+  }
+  const seq = ++state.searchSeq;
+  els.searchBtn.disabled = true;
+  els.searchResults.replaceChildren();
+  setSearchStatus('Ищем в каталоге Звука…', 'loading');
+
+  try {
+    const data = await api(`/api/search?q=${encodeURIComponent(q)}&limit=6`);
+    if (seq !== state.searchSeq) return;
+    renderSearchResults(data);
+  } catch (err) {
+    if (seq !== state.searchSeq) return;
+    els.searchResults.replaceChildren();
+    setSearchStatus('', '');
+    const box = document.createElement('div');
+    box.className = 'zp-error';
+    const message = document.createElement('div');
+    message.textContent = err.message;
+    const hint = document.createElement('div');
+    hint.className = 'zp-error-hint';
+    hint.append('Поиск — не единственный путь: вставьте ссылку на zvuk.com или числовой ID в поле выше. ');
+    const link = document.createElement('a');
+    link.href = `https://zvuk.com/search?query=${encodeURIComponent(q)}`;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Открыть поиск на zvuk.com';
+    hint.append(link);
+    box.append(message, hint);
+    els.searchResults.append(box);
+  } finally {
+    if (seq === state.searchSeq) els.searchBtn.disabled = false;
+  }
+}
+
+async function playContent(payload, label, targetId, button = null) {
+  const id = targetId || els.targetSelect.value || state.targetId;
+  if (!id) {
+    toast('Нет подключённой колонки', 'error');
+    return false;
+  }
+  if (button) button.classList.add('busy');
+  try {
+    const data = await api(`/api/speakers/${id}/play`, { method: 'POST', body: payload });
+    if (data.state) applySnapshot(data.state);
+    const title = label || data.content?.title || `ID ${data.content?.id || ''}`;
+    const target = speakerName(id);
+    if (data.failed?.length) {
+      toast(`${title}: ${data.failed.join('; ')}`, 'error');
+    } else if (data.confirmed) {
+      toast(`«${title}» → ${target}`, 'success');
+    } else {
+      toast(`Команда отправлена: ${title} → ${target}. Колонка ещё переключается.`, 'success');
+    }
+    return true;
+  } catch (err) {
+    toast(err.message, 'error');
+    return false;
+  } finally {
+    if (button) button.classList.remove('busy');
+  }
+}
+
+function bindZvuk() {
+  els.searchForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    runSearch(els.searchInput.value);
+  });
+
+  els.linkForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const value = els.linkInput.value.trim();
+    if (!value) {
+      toast('Вставьте ссылку zvuk.com или ID', 'error');
+      return;
+    }
+    const ok = await playContent({ url: value }, value, els.targetSelect.value, els.linkBtn);
+    if (ok) els.linkInput.value = '';
+  });
+
+  els.targetSelect.addEventListener('change', () => {
+    state.targetId = els.targetSelect.value;
+    for (const row of els.searchResults.querySelectorAll('.zp-item')) {
+      row.title = `Играть на «${speakerName(state.targetId)}»`;
+    }
+  });
+
+  els.searchResults.addEventListener('click', (event) => {
+    const row = event.target.closest('.zp-item');
+    if (!row || row.classList.contains('busy')) return;
+    playContent(
+      { kind: row.dataset.kind, id: row.dataset.id },
+      row.dataset.title,
+      els.targetSelect.value,
+      row,
+    );
+  });
+}
+
+/* ── очередь колонки ─────────────────────────────────── */
+
+function openDialog(dialog) {
+  if (!dialog) return;
+  try {
+    if (!dialog.open) dialog.showModal();
+  } catch {
+    dialog.setAttribute('open', '');
+  }
+}
+
+function closeDialog(dialog) {
+  if (!dialog) return;
+  try {
+    dialog.close();
+  } catch {
+    dialog.removeAttribute('open');
+  }
+}
+
+function typeLabel(type) {
+  return {
+    endless: 'Волна',
+    album: 'Альбом',
+    user: 'Плейлист',
+    playlist: 'Плейлист',
+    artist: 'Исполнитель',
+    release: 'Альбом',
+    podcast: 'Подкаст',
+  }[String(type || '').toLowerCase()] || null;
+}
+
+function renderQueue(data) {
+  const context = data?.context || {};
+  const bits = [context.playlistTitle, typeLabel(context.playlistType)].filter(Boolean);
+  els.queueContext.textContent = bits.length
+    ? bits.join(' · ')
+    : 'Колонка не сообщает текущий плейлист';
+
+  els.queueList.replaceChildren();
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (!items.length) {
+    els.queueStatus.hidden = false;
+    els.queueStatus.textContent =
+      'Очередь пуста или колонка не отдаёт её для этого источника (радио, Bluetooth, волна).';
+    return;
+  }
+
+  if (data.catalogError) {
+    els.queueStatus.hidden = false;
+    els.queueStatus.textContent = `Названия недоступны: ${data.catalogError}`;
+  } else {
+    els.queueStatus.hidden = true;
+  }
+
+  items.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = `queue-item${item.current ? ' current' : ''}`;
+    row.dataset.trackId = item.trackId;
+
+    const num = document.createElement('span');
+    num.className = 'queue-num';
+    num.textContent = item.current ? '♪' : String(index + 1);
+
+    row.append(num, makeCover(item.cover, 'play'));
+
+    const info = document.createElement('div');
+    info.className = 'queue-info';
+    const name = document.createElement('div');
+    name.className = 'queue-name';
+    name.textContent = item.title || `Трек ${item.trackId}`;
+    const meta = document.createElement('div');
+    meta.className = 'queue-meta';
+    const parts = [];
+    if (item.artists?.length) parts.push(item.artists.join(', '));
+    if (item.duration) parts.push(fmtTime(item.duration));
+    if (item.explicit) parts.push('18+');
+    meta.textContent = parts.join(' · ') || (item.current ? 'Играет сейчас' : '');
+    info.append(name, meta);
+    row.append(info);
+
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'zp-play';
+    play.dataset.queuePlay = item.trackId;
+    play.dataset.title = item.title || `Трек ${item.trackId}`;
+    play.title = 'Играть этот трек';
+    play.innerHTML = ICONS.playSmall;
+    row.append(play);
+
+    els.queueList.append(row);
+  });
+}
+
+async function loadQueue() {
+  const id = state.queueSpeakerId;
+  if (!id) return;
+  els.queueStatus.hidden = false;
+  els.queueStatus.textContent = 'Загружаем очередь…';
+  els.queueRefresh.disabled = true;
+  try {
+    const data = await api(`/api/speakers/${id}/queue`);
+    if (state.queueSpeakerId !== id) return;
+    renderQueue(data);
+  } catch (err) {
+    if (state.queueSpeakerId !== id) return;
+    els.queueList.replaceChildren();
+    els.queueStatus.hidden = false;
+    els.queueStatus.textContent = err.message;
+  } finally {
+    els.queueRefresh.disabled = false;
+  }
+}
+
+async function openQueue(sp) {
+  state.queueSpeakerId = sp.id;
+  els.queueTitle.textContent = `Очередь · ${sp.name}`;
+  els.queueContext.textContent = '';
+  els.queueList.replaceChildren();
+  openDialog(els.queueDialog);
+  await loadQueue();
+}
+
+function bindQueue() {
+  els.closeQueue.addEventListener('click', () => {
+    state.queueSpeakerId = null;
+    closeDialog(els.queueDialog);
+  });
+  els.queueDialog.addEventListener('close', () => {
+    state.queueSpeakerId = null;
+  });
+  els.queueRefresh.addEventListener('click', () => loadQueue());
+  els.queueList.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-queue-play]');
+    if (!button || button.classList.contains('busy')) return;
+    const ok = await playContent(
+      { kind: 'track', id: button.dataset.queuePlay },
+      button.dataset.title,
+      state.queueSpeakerId,
+      button,
+    );
+    if (ok) loadQueue();
+  });
+}
+
 /* ── add dialog ──────────────────────────────────────── */
 
 function bindDialog() {
@@ -879,6 +1309,8 @@ function init() {
   hydrateIcons(document);
   bindGroup();
   bindDialog();
+  bindZvuk();
+  bindQueue();
   connectEvents();
   poll();
   pollTimer = setInterval(poll, 15000);

@@ -48,7 +48,7 @@ function speaker(id, name, overrides = {}) {
   };
 }
 
-async function boot(snapshot) {
+async function boot(snapshot, handler = null) {
   const html = await fs.readFile(path.join(ROOT, 'public/index.html'), 'utf8');
   const app = await fs.readFile(path.join(ROOT, 'public/app.js'), 'utf8');
 
@@ -60,11 +60,19 @@ async function boot(snapshot) {
   const { window } = dom;
 
   const events = [];
-  window.fetch = async (url) => ({
-    ok: true,
-    status: 200,
-    json: async () => (String(url).includes('/api/state') ? snapshot : { ok: true }),
-  });
+  const calls = [];
+  window.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (handler) {
+      const result = await handler(String(url), options);
+      if (result) return result;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => (String(url).includes('/api/state') ? snapshot : { ok: true }),
+    };
+  };
   window.EventSource = class {
     constructor() {
       events.push(this);
@@ -74,7 +82,7 @@ async function boot(snapshot) {
 
   window.eval(app);
   await new Promise((resolve) => setTimeout(resolve, 60));
-  return { dom, window, events };
+  return { dom, window, events, calls };
 }
 
 test('UI: три карточки, группа, живые обновления и прогресс', async () => {
@@ -182,6 +190,106 @@ test('UI: мультирум — кнопки на карточках, чипы 
   }
 });
 
+test('UI: поиск Звука, отправка на колонку и очередь', async () => {
+  const snapshot = {
+    serverTime: Date.now(),
+    speakers: [speaker(10, 'Кухня'), speaker(11, 'Спальня')],
+  };
+  const requests = [];
+  const handler = async (url, options = {}) => {
+    const path = new URL(url, 'http://localhost').pathname;
+    if (path === '/api/search') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          query: 'кино',
+          source: 'rest+graphql',
+          sections: {
+            tracks: [
+              { kind: 'track', id: '1', title: 'Группа крови', subtitle: 'Кино', duration: 250 },
+              { kind: 'track', id: '2', title: 'Звезда', subtitle: 'Кино', duration: 200 },
+            ],
+            playlists: [
+              { kind: 'playlist', id: '77', title: 'Лучшее: Кино', subtitle: '30 треков' },
+            ],
+            artists: [],
+            releases: [],
+          },
+        }),
+      };
+    }
+    if (/^\/api\/speakers\/\d+\/play$/.test(path)) {
+      requests.push(JSON.parse(options.body || '{}'));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          confirmed: true,
+          content: JSON.parse(options.body || '{}'),
+          state: snapshot,
+        }),
+      };
+    }
+    if (path === '/api/speakers/10/queue') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            { trackId: '1001', title: 'Первый', artists: ['Артист'], current: true },
+            { trackId: '1002', title: 'Второй', artists: ['Артист'], current: false },
+          ],
+          context: { playlistTitle: 'Мой плейлист', playlistType: 'user' },
+        }),
+      };
+    }
+    return null;
+  };
+
+  const { dom, window, calls } = await boot(snapshot, handler);
+
+  try {
+    const doc = window.document;
+    const select = doc.querySelector('#targetSelect');
+    assert.equal(select.disabled, false);
+    assert.deepEqual([...select.options].map((o) => o.textContent), ['Кухня', 'Спальня']);
+
+    // Поиск.
+    doc.querySelector('#searchInput').value = 'кино';
+    doc.querySelector('#searchForm').dispatchEvent(
+      new window.Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const rows = [...doc.querySelectorAll('.zp-item')];
+    assert.equal(rows.length, 3);
+    assert.equal(rows[0].querySelector('.zp-name').textContent, 'Группа крови');
+    assert.ok(calls.some((c) => c.url.includes('/api/search?q=')));
+
+    // Клик по треку отправляет его на выбранную колонку.
+    rows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.deepEqual(requests.at(-1), { kind: 'track', id: '1' });
+
+    // Очередь.
+    doc.querySelector('[data-action="queue"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const dialog = doc.querySelector('#queueDialog');
+    assert.ok(dialog.hasAttribute('open') || dialog.open);
+    const queueRows = [...doc.querySelectorAll('.queue-item')];
+    assert.equal(queueRows.length, 2);
+    assert.equal(queueRows[0].classList.contains('current'), true);
+    assert.match(doc.querySelector('#queueContext').textContent, /Мой плейлист/);
+
+    queueRows[1].querySelector('[data-queue-play]').click();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.deepEqual(requests.at(-1), { kind: 'track', id: '1002' });
+  } finally {
+    dom.window.close();
+  }
+});
 test('UI: несопряжённая колонка показывает оверлей, во время pair — сообщение', async () => {
   const snapshot = {
     serverTime: Date.now(),

@@ -157,6 +157,109 @@ test('SpeakerManager: мультирум запускает трек на вто
   }
 });
 
+test('SpeakerClient: очередь op=17 возвращает trackId', async () => {
+  const mock = await startMockSpeaker();
+  try {
+    const client = new SpeakerClient({ host: '127.0.0.1', port: mock.port });
+    await client.connect();
+    const token = await client.pair();
+    await client.close();
+
+    const authed = new SpeakerClient({ host: '127.0.0.1', port: mock.port, token });
+    await authed.connect();
+    const queue = await authed.getQueue();
+    assert.deepEqual(queue.map((x) => x.trackId), ['1001', '1002', '1003']);
+    assert.ok(queue.every((x) => typeof x.explicit === 'boolean'));
+    await authed.close();
+  } finally {
+    await mock.close();
+  }
+});
+
+test('SpeakerManager: playContent по ссылке и очередь с метаданными каталога', async () => {
+  const mock = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-play-'));
+  const store = new Store(path.join(dir, 'speakers.json'));
+  const zvuk = {
+    async resolveInput(input) {
+      const match = /track\/(\d+)/.exec(String(input));
+      assert.ok(match, 'ожидалась ссылка на трек');
+      return {
+        kind: 'track',
+        id: match[1],
+        deeplink: `staros://music?tid=${match[1]}&pt=track`,
+        title: `Каталожный трек ${match[1]}`,
+      };
+    },
+    async getTracks(ids) {
+      return ids.map((id) => ({
+        id: String(id),
+        title: `Каталожный трек ${id}`,
+        artists: ['Исполнитель'],
+        album: 'Альбом',
+        cover: null,
+        duration: 180,
+      }));
+    },
+  };
+  const manager = new SpeakerManager({ store, zvuk });
+
+  try {
+    await manager.init();
+    const added = await manager.add({ name: 'Тестовая', host: '127.0.0.1', port: mock.port });
+    await manager.pair(added.id);
+    await waitFor(
+      () => {
+        const sp = manager.snapshot().speakers[0];
+        return sp?.status === 'connected' && sp.track ? sp : null;
+      },
+      { label: 'колонка подключилась' },
+    );
+
+    const queue = await manager.getQueue(added.id);
+    assert.equal(queue.items.length, 3);
+    assert.equal(queue.items[0].current, true);
+    assert.equal(queue.items[0].title, 'Каталожный трек 1001');
+    assert.deepEqual(queue.items[0].artists, ['Исполнитель']);
+
+    const played = await manager.playContent(added.id, {
+      url: 'https://zvuk.com/track/777',
+    });
+    assert.equal(played.ok, true);
+    assert.equal(played.confirmed, true);
+    assert.equal(played.content.id, '777');
+
+    const after = await waitFor(
+      () => {
+        const sp = manager.snapshot().speakers[0];
+        return sp.track?.trackId === '777' && sp.track.playing ? sp : null;
+      },
+      { label: 'колонка переключилась на трек 777' },
+    );
+    assert.equal(after.track.title, 'Mock Track 777');
+
+    const queueAfter = await manager.getQueue(added.id);
+    assert.equal(queueAfter.currentTrackId, '777');
+    assert.equal(queueAfter.items[0].trackId, '777');
+    assert.equal(queueAfter.items[0].current, true);
+
+    const playlist = await manager.playContent(added.id, { kind: 'playlist', id: '555' });
+    assert.equal(playlist.confirmed, true);
+    const withPlaylist = await waitFor(
+      () => {
+        const sp = manager.snapshot().speakers[0];
+        return sp.track?.playlistId === '555' ? sp : null;
+      },
+      { label: 'плейлист применился' },
+    );
+    assert.equal(withPlaylist.track.playlist, 'Mock playlist 555');
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await mock.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('SpeakerManager: add → pair → connected → команды → remove', async () => {
   const mock = await startMockSpeaker();
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-test-'));
