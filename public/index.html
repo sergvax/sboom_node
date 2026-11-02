@@ -71,9 +71,16 @@
             <div class="zp-title">Звук</div>
             <div class="zp-sub">Найдите трек или вставьте ссылку — играть будет колонка из своей сессии</div>
           </div>
-          <label class="zp-target">
-            <span>Колонка</span>
-            <select id="targetSelect" aria-label="Колонка для отправки"></select>
+        </div>
+
+        <div class="zp-target-bar">
+          <span class="zp-target-ico" data-icon="speaker" aria-hidden="true"></span>
+          <div class="zp-target-copy">
+            <span class="zp-target-label">Играть на</span>
+            <span class="zp-target-hint" id="targetHint">выберите колонку</span>
+          </div>
+          <label class="zp-target-select">
+            <select id="targetSelect" aria-label="Колонка для воспроизведения"></select>
           </label>
         </div>
 
@@ -104,6 +111,10 @@
         </form>
 
         <div class="zp-status" id="searchStatus" hidden></div>
+        <div class="zp-play-hint" id="playHint" hidden>
+          <span data-icon="speaker" aria-hidden="true"></span>
+          <span id="playHintText"></span>
+        </div>
         <div class="zp-results" id="searchResults"></div>
       </section>
 

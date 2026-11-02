@@ -20,6 +20,7 @@ const ICONS = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>',
   queue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="16" y2="7"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="17" x2="12" y2="17"/><path d="M19 13v7"/><path d="m16.5 17.5 2.5 2.5 2.5-2.5"/></svg>',
   playSmall: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72c0 .84.92 1.35 1.63.9l10.6-6.86a1.08 1.08 0 0 0 0-1.8L9.63 4.24A1.08 1.08 0 0 0 8 5.14Z"/></svg>',
+  speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="2.2" width="14" height="19.6" rx="3.2"/><circle cx="12" cy="14.3" r="3.1"/><circle cx="12" cy="7.3" r="1.1" fill="currentColor" stroke="none"/></svg>',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -39,6 +40,9 @@ const els = {
   serverPill: $('#serverPill'),
   zvukPanel: $('#zvukPanel'),
   targetSelect: $('#targetSelect'),
+  targetHint: $('#targetHint'),
+  playHint: $('#playHint'),
+  playHintText: $('#playHintText'),
   searchForm: $('#searchForm'),
   searchInput: $('#searchInput'),
   searchBtn: $('#searchBtn'),
@@ -299,6 +303,8 @@ function renderTargets(list) {
     select.append(option);
     select.disabled = true;
     state.targetId = null;
+    els.targetHint.textContent = 'нет колонок в сети';
+    els.playHint.hidden = true;
     return;
   }
 
@@ -314,6 +320,29 @@ function renderTargets(list) {
     : String(connected[0].id);
   select.value = chosen;
   state.targetId = chosen;
+  updateTargetLabels();
+}
+
+/** Подписи «куда уйдёт трек»: в баре выбора и над результатами. */
+function updateTargetLabels() {
+  const id = els.targetSelect.value || state.targetId;
+  const hasTarget = Boolean(id);
+  const name = hasTarget ? speakerName(id) : '';
+
+  els.targetHint.textContent = hasTarget
+    ? 'все результаты запускаются на этой колонке'
+    : 'выберите колонку';
+  els.playHint.hidden = !hasTarget;
+  if (hasTarget) {
+    els.playHintText.textContent = `Нажмите на результат — он заиграет на «${name}»`;
+  }
+
+  for (const row of els.searchResults.querySelectorAll('.zp-item')) {
+    if (!hasTarget) continue;
+    row.title = `Играть на «${name}»`;
+    const play = row.querySelector('.zp-play');
+    if (play) play.setAttribute('aria-label', `Играть на «${name}»`);
+  }
 }
 
 function updateCard(c, sp) {
@@ -798,7 +827,7 @@ function makeCover(src, fallbackIcon = 'queue') {
   const box = document.createElement('div');
   box.className = 'zp-cover';
   const addFallback = () => {
-    box.classList.add('empty');
+    box.classList.add('noart');
     const ico = document.createElement('span');
     ico.dataset.icon = fallbackIcon;
     ico.innerHTML = ICONS[fallbackIcon] || '';
@@ -851,7 +880,7 @@ function renderSearchResults(data) {
       row.dataset.kind = item.kind;
       row.dataset.id = item.id;
       row.dataset.title = item.title || `ID ${item.id}`;
-      row.title = `Играть на «${els.targetSelect.selectedOptions?.[0]?.textContent || 'колонке'}»`;
+      row.title = `Играть на «${speakerName(state.targetId)}»`;
 
       row.append(makeCover(item.cover, key === 'artists' ? 'heart' : key === 'tracks' ? 'play' : 'queue'));
 
@@ -874,6 +903,11 @@ function renderSearchResults(data) {
       play.className = 'zp-play';
       play.dataset.icon = 'playSmall';
       play.innerHTML = ICONS.playSmall;
+      play.setAttribute('aria-label', `Играть на «${speakerName(state.targetId)}»`);
+      const playLabel = document.createElement('span');
+      playLabel.className = 'zp-play-label';
+      playLabel.textContent = 'Играть';
+      play.append(playLabel);
       row.append(play);
 
       list.append(row);
@@ -881,6 +915,8 @@ function renderSearchResults(data) {
     section.append(list);
     els.searchResults.append(section);
   }
+
+  updateTargetLabels();
 
   if (!total) {
     setSearchStatus(`Ничего не найдено по запросу «${data?.query || ''}».`, 'empty');
@@ -976,9 +1012,7 @@ function bindZvuk() {
 
   els.targetSelect.addEventListener('change', () => {
     state.targetId = els.targetSelect.value;
-    for (const row of els.searchResults.querySelectorAll('.zp-item')) {
-      row.title = `Играть на «${speakerName(state.targetId)}»`;
-    }
+    updateTargetLabels();
   });
 
   els.searchResults.addEventListener('click', (event) => {
