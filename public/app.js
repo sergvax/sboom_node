@@ -330,7 +330,7 @@ function updateTargetLabels() {
   const name = hasTarget ? speakerName(id) : '';
 
   els.targetHint.textContent = hasTarget
-    ? 'все результаты запускаются на этой колонке'
+    ? 'сюда пойдёт выбранный трек'
     : 'выберите колонку';
   els.playHint.hidden = !hasTarget;
   if (hasTarget) {
@@ -340,8 +340,10 @@ function updateTargetLabels() {
   for (const row of els.searchResults.querySelectorAll('.zp-item')) {
     if (!hasTarget) continue;
     row.title = `Играть на «${name}»`;
-    const play = row.querySelector('.zp-play');
-    if (play) play.setAttribute('aria-label', `Играть на «${name}»`);
+    row.setAttribute(
+      'aria-label',
+      `Играть «${row.dataset.title || 'трек'}» на «${name}»`,
+    );
   }
 }
 
@@ -851,6 +853,7 @@ function makeCover(src, fallbackIcon = 'queue') {
 
 function renderSearchResults(data) {
   els.searchResults.replaceChildren();
+  els.searchResults.scrollTop = 0;
   const sections = data?.sections || {};
   const order = ['tracks', 'playlists', 'artists', 'releases'];
   let total = 0;
@@ -881,6 +884,7 @@ function renderSearchResults(data) {
       row.dataset.id = item.id;
       row.dataset.title = item.title || `ID ${item.id}`;
       row.title = `Играть на «${speakerName(state.targetId)}»`;
+      row.setAttribute('aria-label', `Играть «${item.title || item.id}» на «${speakerName(state.targetId)}»`);
 
       row.append(makeCover(item.cover, key === 'artists' ? 'heart' : key === 'tracks' ? 'play' : 'queue'));
 
@@ -903,7 +907,7 @@ function renderSearchResults(data) {
       play.className = 'zp-play';
       play.dataset.icon = 'playSmall';
       play.innerHTML = ICONS.playSmall;
-      play.setAttribute('aria-label', `Играть на «${speakerName(state.targetId)}»`);
+      play.setAttribute('aria-hidden', 'true');
       const playLabel = document.createElement('span');
       playLabel.className = 'zp-play-label';
       playLabel.textContent = 'Играть';
@@ -919,7 +923,7 @@ function renderSearchResults(data) {
   updateTargetLabels();
 
   if (!total) {
-    setSearchStatus(`Ничего не найдено по запросу «${data?.query || ''}».`, 'empty');
+    setSearchStatus(`Ничего не найдено по запросу «${data?.query || ''}».`, 'none');
   } else {
     const suffix = data?.stale ? ' · показаны сохранённые результаты' : '';
     setSearchStatus(`Найдено: ${total}${suffix}`, 'ok');
@@ -1114,6 +1118,7 @@ function renderQueue(data) {
     play.dataset.queuePlay = item.trackId;
     play.dataset.title = item.title || `Трек ${item.trackId}`;
     play.title = 'Играть этот трек';
+    play.setAttribute('aria-label', `Играть «${play.dataset.title}»`);
     play.innerHTML = ICONS.playSmall;
     row.append(play);
 

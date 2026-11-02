@@ -255,6 +255,8 @@ test('UI: поиск Звука, отправка на колонку и оче�
     const select = doc.querySelector('#targetSelect');
     assert.equal(select.disabled, false);
     assert.deepEqual([...select.options].map((o) => o.textContent), ['Кухня', 'Спальня']);
+    assert.match(doc.querySelector('#targetHint').textContent, /сюда пойдёт/);
+    assert.match(doc.querySelector('#playHintText').textContent, /Кухня/);
 
     // Поиск.
     doc.querySelector('#searchInput').value = 'кино';
@@ -266,12 +268,24 @@ test('UI: поиск Звука, отправка на колонку и оче�
     const rows = [...doc.querySelectorAll('.zp-item')];
     assert.equal(rows.length, 3);
     assert.equal(rows[0].querySelector('.zp-name').textContent, 'Группа крови');
+    assert.equal(rows[0].querySelector('.zp-play-label').textContent, 'Играть');
+    assert.match(rows[0].title, /Кухня/);
+    assert.equal(doc.querySelectorAll('.zp-cover.noart').length, 3);
+    assert.equal(doc.querySelectorAll('.zp-cover.empty').length, 0);
     assert.ok(calls.some((c) => c.url.includes('/api/search?q=')));
+
+    // Переключение колонки меняет подсказку и адресацию запуска.
+    select.value = '11';
+    select.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.match(doc.querySelector('#playHintText').textContent, /Спальня/);
+    assert.match(rows[0].title, /Спальня/);
 
     // Клик по треку отправляет его на выбранную колонку.
     rows[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.deepEqual(requests.at(-1), { kind: 'track', id: '1' });
+    assert.match(calls.at(-1).url, /\/api\/speakers\/11\/play$/);
 
     // Очередь.
     doc.querySelector('[data-action="queue"]').click();
