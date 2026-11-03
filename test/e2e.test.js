@@ -94,17 +94,42 @@ test('SpeakerManager: мультирум запускает трек на вто
       { label: 'обе колонки подключились' },
     );
 
-    // Источник играет — с него стартуем мультирум.
+    // Источник уже играет — с него стартуем мультирум.
     await manager.command(a.id, 'play');
     await waitFor(
       () => manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.playing,
       { label: 'источник заиграл' },
     );
 
+    // Ставим источник на 20-ю секунду: ведомая должна попасть на ту же
+    // секунду, а не начать трек с нуля.
+    await manager.command(a.id, 'seek', 20);
+    await waitFor(
+      async () => {
+        const view = await manager.get(a.id).measure().catch(() => null);
+        return view?.position >= 20 ? view : null;
+      },
+      { label: 'источник на 20-й секунде' },
+    );
+
     const started = await manager.startMultiroom(a.id);
     assert.equal(started.active, true);
     assert.equal(started.sourceId, a.id);
     assert.deepEqual(new Set(started.memberIds), new Set([a.id, b.id]));
+
+    const [srcView, dstView] = await waitFor(
+      async () => {
+        const [src, dst] = await Promise.all([
+          manager.get(a.id).measure().catch(() => null),
+          manager.get(b.id).measure().catch(() => null),
+        ]);
+        if (!src || !dst || src.position === null || dst.position === null) return null;
+        return Math.abs(src.position - dst.position) <= 1 ? [src, dst] : null;
+      },
+      { timeout: 10_000, label: 'колонки играют с одной секунды' },
+    );
+    assert.ok(srcView.position >= 19, `источник должен быть на 20-й секунде, а не ${srcView.position}`);
+    assert.ok(dstView.position >= 19, `ведомая стартовала с нуля: ${dstView.position}`);
 
     // Обе колонки играют один и тот же трек.
     const bothPlaying = await waitFor(
@@ -125,6 +150,13 @@ test('SpeakerManager: мультирум запускает трек на вто
       { timeout: 10_000, label: 'пауза на обеих колонках' },
     );
 
+    // Продолжаем и переключаем трек на играющем источнике.
+    await manager.command(a.id, 'play');
+    await waitFor(
+      () => manager.snapshot().speakers.every((s) => s.track?.playing),
+      { timeout: 10_000, label: 'обе колонки снова играют' },
+    );
+
     // Следующий трек — ведомая догоняет источник через deeplink.
     const before = manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.trackId;
     await manager.command(a.id, 'next');
@@ -142,6 +174,16 @@ test('SpeakerManager: мультирум запускает трек на вто
       { timeout: 20_000, label: 'обе колонки перешли на новый трек' },
     );
     assert.equal(afterNext.dst.track.trackId, afterNext.src.track.trackId);
+
+    // И не начала новый трек с нуля: позиции остаются рядом.
+    const [nextSrc, nextDst] = await Promise.all([
+      manager.get(a.id).measure().catch(() => null),
+      manager.get(b.id).measure().catch(() => null),
+    ]);
+    assert.ok(
+      Math.abs(nextSrc.position - nextDst.position) <= 2,
+      `после next позиции разъехались: ${nextSrc.position} и ${nextDst.position}`,
+    );
 
     const stopped = await manager.stopMultiroom();
     assert.equal(stopped.active, false);
