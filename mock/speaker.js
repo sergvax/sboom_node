@@ -47,6 +47,7 @@ export async function startMockSpeaker(opts = {}) {
     token = 'mock-token-0123456789abcdef',
     pairDelayMs = 250,
     musicInCurrentApp = false,
+    seekLatencyMs = 0,
   } = opts;
   const { key, cert } = ensureCerts();
   const server = https.createServer({ key, cert });
@@ -253,7 +254,19 @@ export async function startMockSpeaker(opts = {}) {
         return;
       }
       if ('15' in req) {
-        st.position = Number(req[15]?.[1] ?? st.position);
+        const target = Number(req[15]?.[1] ?? st.position);
+        // Прошивка применяет seek не мгновенно (200–900 мс), поэтому mock
+        // с seekLatencyMs>0 моделирует реальное железо.
+        if (seekLatencyMs > 0) {
+          setTimeout(() => {
+            st.position = target;
+            st.positionAt = Date.now();
+            pushState(ws);
+            pushMeta(ws);
+          }, seekLatencyMs);
+          return;
+        }
+        st.position = target;
         st.positionAt = Date.now();
         pushState(ws);
         pushMeta(ws);
