@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseQueue, parseState, parseTrack, trackFromState, coverUrl } from '../lib/parsers.js';
+import {
+  parseQueue,
+  parseState,
+  parseTrack,
+  trackFromState,
+  mediaPlayerFromState,
+  coverUrl,
+} from '../lib/parsers.js';
 import { parseHostInput } from '../lib/manager.js';
 import { field } from '../lib/tlv.js';
 import { OP_GET_PLAYING_QUEUE } from '../lib/protocol.js';
@@ -134,8 +141,55 @@ test('trackFromState: радио в GET_STATE без trackId', () => {
   assert.equal(track.playing, true);
 });
 
-test('trackFromState: контекст плейлиста из info', () => {
-  const track = trackFromState({
+test('mediaPlayerFromState: SberPortal кладёт музыку в current_app', () => {
+  const data = {
+    current_app: {
+      app_info: { systemName: 'music' },
+      state: {
+        player: {
+          playing: true,
+          position: 47,
+          duration: 209,
+          info: { title: 'Song', trackId: 180359844 },
+        },
+      },
+    },
+    background_apps: [
+      { app_info: { systemName: 'voice_auth' }, state: {} },
+      { app_info: { systemName: 'weather_quiet' }, state: {} },
+    ],
+  };
+  const media = mediaPlayerFromState(data);
+  assert.ok(media);
+  assert.equal(media.systemName, 'music');
+  assert.equal(media.info.trackId, 180359844);
+
+  const track = trackFromState(data);
+  assert.ok(track);
+  assert.equal(track.track_id, '180359844');
+  assert.equal(track.position, 47);
+  assert.equal(track.playing, true);
+});
+
+test('mediaPlayerFromState: играющая фоновая музыка важнее стоящей current_app', () => {
+  const data = {
+    current_app: {
+      app_info: { systemName: 'music' },
+      state: { player: { playing: false, info: { title: 'Paused', trackId: 1 } } },
+    },
+    background_apps: [
+      {
+        app_info: { systemName: 'music' },
+        state: { player: { playing: true, info: { title: 'Playing', trackId: 2 } } },
+      },
+    ],
+  };
+  const media = mediaPlayerFromState(data);
+  assert.ok(media);
+  assert.equal(media.info.trackId, 2);
+});
+
+test('trackFromState: контекст плейлиста из info', () => {  const track = trackFromState({
     background_apps: [
       {
         app_info: { systemName: 'music' },

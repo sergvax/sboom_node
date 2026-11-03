@@ -39,10 +39,15 @@ function ensureCerts() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * @param {{port?:number, token?:string, pairDelayMs?:number}} [opts]
+ * @param {{port?:number, token?:string, pairDelayMs?:number, musicInCurrentApp?:boolean}} [opts]
  */
 export async function startMockSpeaker(opts = {}) {
-  const { port = 0, token = 'mock-token-0123456789abcdef', pairDelayMs = 250 } = opts;
+  const {
+    port = 0,
+    token = 'mock-token-0123456789abcdef',
+    pairDelayMs = 250,
+    musicInCurrentApp = false,
+  } = opts;
   const { key, cert } = ensureCerts();
   const server = https.createServer({ key, cert });
   const wss = new WebSocketServer({ server });
@@ -78,38 +83,41 @@ export async function startMockSpeaker(opts = {}) {
     st.positionAt = Date.now();
   };
 
-  const stateJson = () => JSON.stringify({
-    volume: { muted: st.muted, percent: st.volume },
-    network: { connection_type: 'WIFI', ip: '127.0.0.1' },
-    capabilities_state: { led_display: { brightness: 100, turned_on: true } },
-    time: { timezone_id: 'Europe/Moscow' },
-    background_apps: [
-      {
-        app_info: { systemName: 'music' },
-        state: {
-          player: {
-            playing: st.playing,
-            position: position(),
-            duration: st.duration,
-            shuffle: st.shuffle,
-            repeatType: st.repeat,
-            mode: 'music',
-            info: {
-              title: st.title,
-              trackId: st.trackId,
-              playlistId: st.playlistId,
-              playlistTitle: st.playlistTitle,
-              playlistType: st.playlistType,
-              artists: st.artists.map((name, i) => ({ id: String(i + 1), name })),
-              releases: [{ id: st.releaseId, name: st.album }],
-              provider: 'zvuk',
-              like: st.liked,
-            },
+  const stateJson = () => {
+    const mediaApp = {
+      app_info: { systemName: 'music' },
+      state: {
+        player: {
+          playing: st.playing,
+          position: position(),
+          duration: st.duration,
+          shuffle: st.shuffle,
+          repeatType: st.repeat,
+          mode: 'music',
+          info: {
+            title: st.title,
+            trackId: st.trackId,
+            playlistId: st.playlistId,
+            playlistTitle: st.playlistTitle,
+            playlistType: st.playlistType,
+            artists: st.artists.map((name, i) => ({ id: String(i + 1), name })),
+            releases: [{ id: st.releaseId, name: st.album }],
+            provider: 'zvuk',
+            like: st.liked,
           },
         },
       },
-    ],
-  });
+    };
+    return JSON.stringify({
+      volume: { muted: st.muted, percent: st.volume },
+      network: { connection_type: 'WIFI', ip: '127.0.0.1' },
+      capabilities_state: { led_display: { brightness: 100, turned_on: true } },
+      time: { timezone_id: 'Europe/Moscow' },
+      ...(musicInCurrentApp
+        ? { current_app: mediaApp, background_apps: [] }
+        : { background_apps: [mediaApp] }),
+    });
+  };
 
   const trackJson = () => JSON.stringify({
     artists: st.artists.map((name, i) => ({ id: String(i + 1), name })),

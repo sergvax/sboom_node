@@ -199,6 +199,86 @@ test('SpeakerManager: мультирум запускает трек на вто
   }
 });
 
+test('SpeakerManager: мультирум видит музыку в current_app (SberPortal) и как источник, и как ведомая', async () => {
+  const mockA = await startMockSpeaker({ musicInCurrentApp: true });
+  const mockB = await startMockSpeaker({ musicInCurrentApp: true });
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-mr-portal-'));
+  const store = new Store(path.join(dir, 'speakers.json'));
+  const manager = new SpeakerManager({ store });
+
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'Portal', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'Portal 2', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 &&
+          list.every((s) => s.status === 'connected' && s.track?.trackId)
+          ? list
+          : null;
+      },
+      { label: 'обе Portal-колонки подключились' },
+    );
+
+    await manager.command(a.id, 'play');
+    await waitFor(
+      () => manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.playing,
+      { label: 'источник заиграл' },
+    );
+    await manager.command(a.id, 'seek', 20);
+    await waitFor(
+      async () => {
+        const view = await manager.get(a.id).measure().catch(() => null);
+        return view?.position >= 20 ? view : null;
+      },
+      { label: 'источник на 20-й секунде' },
+    );
+
+    const started = await manager.startMultiroom(a.id);
+    assert.equal(started.active, true);
+
+    const [srcView, dstView] = await waitFor(
+      async () => {
+        const [src, dst] = await Promise.all([
+          manager.get(a.id).measure().catch(() => null),
+          manager.get(b.id).measure().catch(() => null),
+        ]);
+        if (!src || !dst || src.position === null || dst.position === null) return null;
+        return Math.abs(src.position - dst.position) <= 1 ? [src, dst] : null;
+      },
+      { timeout: 10_000, label: 'Portal-колонки играют с одной секунды' },
+    );
+    assert.ok(dstView.position >= 19, `Portal-ведомая стартовала с нуля: ${dstView.position}`);
+
+    const before = manager.snapshot().speakers.find((s) => s.id === a.id)?.track?.trackId;
+    await manager.command(a.id, 'next');
+    const afterNext = await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        const src = list.find((s) => s.id === a.id);
+        const dst = list.find((s) => s.id === b.id);
+        return src?.track?.trackId &&
+          src.track.trackId !== before &&
+          dst?.track?.trackId === src.track.trackId
+          ? { src, dst }
+          : null;
+      },
+      { timeout: 20_000, label: 'Portal-колонки перешли на новый трек' },
+    );
+    assert.equal(afterNext.dst.track.trackId, afterNext.src.track.trackId);
+
+    await manager.stopMultiroom();
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await Promise.allSettled([mockA.close(), mockB.close()]);
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('SpeakerClient: очередь op=17 возвращает trackId', async () => {
   const mock = await startMockSpeaker();
   try {
@@ -359,6 +439,121 @@ test('SpeakerManager: add → pair → connected → команды → remove',
   } finally {
     await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
     await mock.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('SpeakerManager: мультирум не глушит колонку, выпавшую из группы', async () => {
+  const mockA = await startMockSpeaker();
+  const mockB = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-mr-leave-'));
+  const store = new Store(path.join(dir, 'speakers.json'));
+  const manager = new SpeakerManager({ store });
+
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'Группа', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'Отдельная', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 && list.every((s) => s.status === 'connected' && s.track?.trackId) ? list : null;
+      },
+      { label: 'обе колонки подключились' },
+    );
+
+    await manager.command(a.id, 'play');
+    const started = await manager.startMultiroom(a.id);
+    assert.equal(started.active, true);
+
+    // Колонка вне группы должна управляться напрямую и не остаться заглушенной.
+    await manager.command(b.id, 'volume', 42);
+    await waitFor(() => mockB.state.volume === 42, { label: 'громкость на отдельной колонке' });
+
+    await manager.stopMultiroom();
+    await waitFor(() => mockA.state.muted === false, { label: 'группа сняла mute' });
+    assert.equal(mockB.state.muted, false);
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await Promise.allSettled([mockA.close(), mockB.close()]);
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('SpeakerRuntime.measure(): короткий кэш, свежий замер по требованию', async () => {
+  const mock = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-cache-'));
+  const store = new Store(path.join(dir, 'speakers.json'));
+  const manager = new SpeakerManager({ store });
+
+  try {
+    await manager.init();
+    const sp = await manager.add({ name: 'Кэш', host: '127.0.0.1', port: mock.port });
+    await manager.pair(sp.id);
+    const runtime = manager.get(sp.id);
+    await waitFor(() => runtime.client?.connected, { label: 'колонка подключилась' });
+
+    await runtime.command('play');
+    await sleep(300);
+
+    // Замер до команды — RTT на порядок меньше интервала синхронизации.
+    const before = await runtime.measure();
+    const after = await runtime.measure();
+    assert.ok(before && after);
+    assert.equal(after.at, before.at, 'повторный замер должен взять кэш, а не новый RTT');
+
+    // Точная подстройка требует свежего замера: fresh обходит кэш, даже
+    // если интервал кэша ещё не истёк.
+    const fresh = await runtime.measure({ fresh: true });
+    assert.ok(fresh);
+    assert.equal(fresh.position, before.position);
+
+    await runtime.command('pause');
+    const c = await runtime.measure();
+    assert.equal(c.playing, false, 'команда должна инвалидировать кэш');
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await mock.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('SpeakerManager: колонку можно удалить из мультирума (forget → без зависшего mute)', async () => {
+  const mockA = await startMockSpeaker();
+  const mockB = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-mr-forget-'));
+  const store = new Store(path.join(dir, 'speakers.json'));
+  const manager = new SpeakerManager({ store });
+
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'Источник', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'Ведомая', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 && list.every((s) => s.status === 'connected' && s.track?.trackId) ? list : null;
+      },
+      { label: 'обе колонки подключились' },
+    );
+
+    await manager.command(a.id, 'play');
+    await manager.startMultiroom(a.id);
+    await waitFor(() => mockB.state.playing, { label: 'ведомая играет' });
+
+    await manager.remove(b.id);
+    const mr = manager.snapshot().multiroom;
+    assert.ok(!mr.memberIds.includes(b.id));
+    assert.equal(mockA.state.muted, false);
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await Promise.allSettled([mockA.close(), mockB.close()]);
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
