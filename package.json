@@ -27,7 +27,7 @@
   "scripts": {
     "start": "node server.js",
     "mock": "node mock/speaker.js",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
