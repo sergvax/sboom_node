@@ -392,6 +392,120 @@ test('UI: поиск из карточки колонки, история и в�
     dom.window.close();
   }
 });
+test('UI: Bluetooth-диалог — список, скан, режим сопряжения и команды', async () => {
+  const snapshot = {
+    serverTime: Date.now(),
+    speakers: [speaker(10, 'Кухня')],
+  };
+  const requests = [];
+  const btState = {
+    devices: [
+      { mac: 'AA:BB:CC:DD:EE:FF', name: 'Телефон', connected: true },
+      { mac: '11:22:33:44:55:66', name: 'Наушники', connected: false },
+    ],
+    scanned: [],
+    scanning: false,
+    discoverable: false,
+    error: null,
+  };
+
+  const handler = async (path, options) => {
+    if (path === '/api/speakers/10/bluetooth') {
+      return { ok: true, status: 200, json: async () => ({ bt: btState }) };
+    }
+    if (path === '/api/speakers/10/bluetooth/scan') {
+      requests.push({ path, method: options.method });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          bt: {
+            ...btState,
+            scanned: [
+              { mac: '77:88:99:AA:BB:CC', name: 'Рядом', rssi: 42 },
+            ],
+          },
+        }),
+      };
+    }
+    if (path === '/api/speakers/10/bluetooth/discoverable') {
+      requests.push({ path, method: options.method });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ bt: { ...btState, discoverable: true } }),
+      };
+    }
+    if (path === '/api/speakers/10/bluetooth/command') {
+      const body = JSON.parse(options.body || '{}');
+      requests.push({ path, method: options.method, body });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          bt: {
+            ...btState,
+            devices: btState.devices.map((d) =>
+              d.mac === body.mac ? { ...d, connected: body.command === 'connect' } : d,
+            ),
+          },
+        }),
+      };
+    }
+    return null;
+  };
+
+  const { dom, window } = await boot(snapshot, handler);
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const isOpen = (el) => Boolean(el.open || el.hasAttribute('open'));
+
+  try {
+    const doc = window.document;
+    const btBtn = doc.querySelector('[data-action="bluetooth"]');
+    assert.ok(btBtn, 'на карточке есть кнопка Bluetooth');
+    assert.equal(btBtn.disabled, false);
+
+    btBtn.click();
+    await wait(60);
+
+    const dialog = doc.querySelector('#btDialog');
+    assert.ok(isOpen(dialog));
+    assert.match(doc.querySelector('#btTitle').textContent, /Кухня/);
+
+    let rows = [...doc.querySelectorAll('#btList .bt-item')];
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0].querySelector('.bt-name').textContent, 'Телефон');
+    assert.ok(rows[0].querySelector('.bt-state.on'), 'подключённое устройство помечено');
+    assert.equal(rows[0].querySelector('[data-bt-action]').textContent, 'Отключить');
+
+    // Скан рядом.
+    doc.querySelector('#btScan').click();
+    await wait(60);
+    assert.equal(requests.at(-1).path, '/api/speakers/10/bluetooth/scan');
+    rows = [...doc.querySelectorAll('#btScanList .bt-item')];
+    assert.equal(rows.length, 1);
+    assert.match(rows[0].querySelector('.bt-meta').textContent, /42 dBm/);
+
+    // Режим сопряжения.
+    doc.querySelector('#btDiscoverable').click();
+    await wait(60);
+    assert.equal(requests.at(-1).path, '/api/speakers/10/bluetooth/discoverable');
+    assert.match(doc.querySelector('#btHint').textContent, /Режим сопряжения включён/);
+
+    // Отключение устройства.
+    doc.querySelector('#btList [data-bt-action="disconnect"]').click();
+    await wait(60);
+    const cmd = requests.at(-1);
+    assert.equal(cmd.path, '/api/speakers/10/bluetooth/command');
+    assert.deepEqual(cmd.body, { mac: 'AA:BB:CC:DD:EE:FF', command: 'disconnect' });
+    rows = [...doc.querySelectorAll('#btList .bt-item')];
+    assert.equal(rows[0].querySelector('[data-bt-action]').textContent, 'Подключить');
+    assert.equal(rows[0].querySelector('.bt-state.on'), null);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('UI: несопряжённая колонка показывает оверлей, во время pair — сообщение', async () => {
   const snapshot = {
     serverTime: Date.now(),

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { field, decode, varint } from '../lib/tlv.js';
+import { field, decode, decodeRepeated, varint } from '../lib/tlv.js';
 
 test('varint: однобайтовые и многобайтовые значения', () => {
   assert.deepEqual([...varint(0)], [0]);
@@ -47,6 +47,22 @@ test('JSON внутри TLV остаётся строкой, а не nested-му
   const json = '{"volume":{"muted":false,"percent":42}}';
   const out = decode(field(5, 2, json));
   assert.equal(out[5], json);
+});
+
+test('decodeRepeated: сохраняет повторяющиеся теги как сырые значения', () => {
+  const buf = Buffer.concat([
+    field(1, 2, 'first'),
+    field(1, 2, 'second'),
+    field(2, 0, 7),
+    field(2, 0, 9),
+    field(3, 2, field(1, 2, 'nested')),
+  ]);
+  const out = decodeRepeated(buf);
+  assert.equal(out[1].length, 2);
+  assert.equal(out[1][0].toString('utf8'), 'first');
+  assert.equal(out[1][1].toString('utf8'), 'second');
+  assert.deepEqual(out[2], [7, 9]);
+  assert.equal(out[3][0].toString('hex'), field(1, 2, 'nested').toString('hex'));
 });
 
 test('битый/обрезанный буфер не бросает исключение', () => {

@@ -53,6 +53,18 @@ export async function startMockSpeaker(opts = {}) {
   const server = https.createServer({ key, cert });
   const wss = new WebSocketServer({ server });
 
+  const bt = {
+    discoverable: false,
+    devices: [
+      { mac: 'AA:BB:CC:DD:EE:FF', name: 'Mock Phone', connected: true },
+      { mac: '11:22:33:44:55:66', name: 'Mock Headphones', connected: false },
+    ],
+    scanned: [
+      { mac: '77:88:99:AA:BB:CC', name: 'Mock Speaker', rssi: 42 },
+      { mac: 'DD:EE:FF:00:11:22', name: 'Mock Watch', rssi: 76 },
+    ],
+  };
+
   const st = {
     volume: 20,
     muted: false,
@@ -139,6 +151,20 @@ export async function startMockSpeaker(opts = {}) {
     playlistTitle: st.playlistTitle,
     playlistType: st.playlistType,
   });
+
+  const btDeviceMsg = ({ mac, name, connected }) =>
+    Buffer.concat([
+      field(1, 2, mac),
+      field(2, 2, name || ''),
+      field(3, 0, connected ? 1 : 0),
+    ]);
+
+  const btScannedMsg = ({ mac, name, rssi }) =>
+    Buffer.concat([
+      field(1, 2, mac),
+      field(2, 2, name || ''),
+      field(3, 0, Number(rssi) || 0),
+    ]);
 
   const reply = (ws, msgId, inner) => {
     if (ws.readyState !== ws.OPEN) return;
@@ -248,6 +274,31 @@ export async function startMockSpeaker(opts = {}) {
         reply(ws, msgId, field(17, 2, field(5, 2, JSON.stringify(queue))));
         return;
       }
+      if ('19' in req) {
+        const devices = Buffer.concat(bt.devices.map((d) => field(1, 2, btDeviceMsg(d))));
+        reply(ws, msgId, field(19, 2, devices));
+        return;
+      }
+      if ('20' in req) {
+        const mac = String(req[20]?.[1] ?? '');
+        const cmd = Number(req[20]?.[2]);
+        const index = bt.devices.findIndex((d) => d.mac === mac);
+        if (index >= 0) {
+          if (cmd === 0) bt.devices[index].connected = true;
+          else if (cmd === 1) bt.devices[index].connected = false;
+          else if (cmd === 2) bt.devices.splice(index, 1);
+        }
+        return;
+      }
+      if ('21' in req) {
+        const devices = Buffer.concat(bt.scanned.map((d) => field(2, 2, btScannedMsg(d))));
+        reply(ws, msgId, field(21, 2, devices));
+        return;
+      }
+      if ('22' in req) {
+        bt.discoverable = true;
+        return;
+      }
       if ('14' in req) {
         st.volume = Number(req[14]?.[1] ?? st.volume);
         pushState(ws);
@@ -307,6 +358,7 @@ export async function startMockSpeaker(opts = {}) {
     port: actualPort,
     token,
     state: st,
+    bt,
     async close() {
       for (const ws of clients) {
         try {

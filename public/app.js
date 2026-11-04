@@ -21,6 +21,7 @@ const ICONS = {
   queue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="16" y2="7"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="17" x2="12" y2="17"/><path d="M19 13v7"/><path d="m16.5 17.5 2.5 2.5 2.5-2.5"/></svg>',
   playSmall: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72c0 .84.92 1.35 1.63.9l10.6-6.86a1.08 1.08 0 0 0 0-1.8L9.63 4.24A1.08 1.08 0 0 0 8 5.14Z"/></svg>',
   speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="2.2" width="14" height="19.6" rx="3.2"/><circle cx="12" cy="14.3" r="3.1"/><circle cx="12" cy="7.3" r="1.1" fill="currentColor" stroke="none"/></svg>',
+  bluetooth: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7.5 10 9-5 4V3.5l5 4-10 9"/></svg>',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -59,6 +60,18 @@ const els = {
   queueList: $('#queueList'),
   queueRefresh: $('#queueRefresh'),
   closeQueue: $('#closeQueue'),
+  btDialog: $('#btDialog'),
+  btTitle: $('#btTitle'),
+  btTarget: $('#btTarget'),
+  btStatus: $('#btStatus'),
+  btList: $('#btList'),
+  btDiscoverable: $('#btDiscoverable'),
+  btHint: $('#btHint'),
+  btRefresh: $('#btRefresh'),
+  btScan: $('#btScan'),
+  btScanStatus: $('#btScanStatus'),
+  btScanList: $('#btScanList'),
+  closeBt: $('#closeBt'),
 };
 
 const state = {
@@ -72,6 +85,9 @@ const state = {
   searchSeq: 0,
   historySeq: 0,
   queueSpeakerId: null,
+  btSpeakerId: null,
+  btBusy: false,
+  bt: null,
 };
 
 const cards = new Map();
@@ -196,6 +212,7 @@ function createCard(sp) {
     like: $('.like-btn', node),
     searchBtn: $('[data-action="search"]', node),
     queueBtn: $('[data-action="queue"]', node),
+    btBtn: $('[data-action="bluetooth"]', node),
     multiBtn: $('.mr-btn', node),
     multiIcon: $('.mr-btn [data-icon]', node),
     multiLabel: $('.mr-label', node),
@@ -355,6 +372,8 @@ function updateCard(c, sp) {
   c.like.title = t?.liked ? 'Убрать лайк' : 'Нравится';
   c.queueBtn.disabled = !online;
   c.queueBtn.title = online ? 'Очередь колонки' : 'Колонка не в сети';
+  c.btBtn.disabled = !online;
+  c.btBtn.title = online ? 'Bluetooth-устройства колонки' : 'Колонка не в сети';
   c.searchBtn.disabled = !online;
   c.searchBtn.title = online
     ? 'Найти музыку и включить на этой колонке'
@@ -562,6 +581,9 @@ function onAction(action, sp, refs, target) {
       break;
     case 'queue':
       openQueue(sp);
+      break;
+    case 'bluetooth':
+      openBluetooth(sp);
       break;
     case 'search':
       openSearch(sp);
@@ -1327,6 +1349,252 @@ function bindQueue() {
   });
 }
 
+/* ── bluetooth ───────────────────────────────────────── */
+
+const BT_HINT =
+  'Колонка станет видимой по Bluetooth. Подключите к ней телефон или компьютер ' +
+  'в настройках Bluetooth — звук пойдёт с вашего устройства.';
+
+function setBtStatus(el, text, kind = '') {
+  el.hidden = !text;
+  el.className = `queue-status${kind ? ` ${kind}` : ''}`;
+  el.textContent = text || '';
+}
+
+function makeBtRow(device, { scanned = false } = {}) {
+  const row = document.createElement('div');
+  row.className = 'bt-item';
+  row.dataset.mac = device.mac;
+
+  const ico = document.createElement('span');
+  ico.className = 'bt-item-ico';
+  ico.innerHTML = ICONS.bluetooth;
+  ico.setAttribute('aria-hidden', 'true');
+
+  const info = document.createElement('div');
+  info.className = 'bt-info';
+  const name = document.createElement('div');
+  name.className = 'bt-name';
+  name.textContent = device.name || device.mac;
+  const meta = document.createElement('div');
+  meta.className = 'bt-meta';
+  if (scanned) {
+    const bits = [device.mac];
+    if (typeof device.rssi === 'number') bits.push(`${device.rssi} dBm`);
+    meta.textContent = bits.join(' · ');
+  } else {
+    meta.append(device.mac);
+    const status = document.createElement('span');
+    status.className = `bt-state${device.connected ? ' on' : ''}`;
+    status.textContent = device.connected ? 'подключено' : 'спарено';
+    meta.append(' · ', status);
+  }
+  info.append(name, meta);
+  row.append(ico, info);
+
+  if (!scanned) {
+    const actions = document.createElement('div');
+    actions.className = 'bt-actions';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'btn small';
+    toggle.dataset.btAction = device.connected ? 'disconnect' : 'connect';
+    toggle.textContent = device.connected ? 'Отключить' : 'Подключить';
+    actions.append(toggle);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'icon-btn danger';
+    remove.dataset.btAction = 'remove';
+    remove.title = 'Забыть устройство';
+    remove.setAttribute('aria-label', 'Забыть устройство');
+    remove.innerHTML = ICONS.trash;
+    actions.append(remove);
+
+    row.append(actions);
+  }
+
+  return row;
+}
+
+function renderBt(bt) {
+  const data = bt || {};
+  const devices = Array.isArray(data.devices) ? data.devices : [];
+  els.btList.replaceChildren();
+  for (const device of devices) els.btList.append(makeBtRow(device));
+
+  if (data.error) setBtStatus(els.btStatus, data.error, 'error');
+  else if (!devices.length) {
+    setBtStatus(
+      els.btStatus,
+      'Нет спаренных устройств. Включите режим сопряжения и подключите телефон или компьютер.',
+    );
+  } else {
+    setBtStatus(els.btStatus, '');
+  }
+
+  const scanned = Array.isArray(data.scanned) ? data.scanned : [];
+  els.btScanList.replaceChildren();
+  for (const device of scanned) els.btScanList.append(makeBtRow(device, { scanned: true }));
+
+  if (data.scanning) setBtStatus(els.btScanStatus, 'Сканируем Bluetooth-устройства рядом…');
+  else if (!scanned.length) {
+    setBtStatus(
+      els.btScanStatus,
+      'Нажмите «Найти», чтобы увидеть устройства рядом. Подключать нужно уже спаренные — из списка выше.',
+    );
+  } else {
+    setBtStatus(els.btScanStatus, 'Подключать нужно уже спаренные — из списка выше.');
+  }
+
+  els.btScan.disabled = state.btBusy || Boolean(data.scanning);
+}
+
+function applyBtResponse(data) {
+  if (data?.state) applySnapshot(data.state);
+  if (data?.bt) state.bt = data.bt;
+  renderBt(state.bt);
+}
+
+async function loadBluetooth({ silent = false } = {}) {
+  const id = state.btSpeakerId;
+  if (!id) return;
+  if (!silent) setBtStatus(els.btStatus, 'Загружаем список устройств…');
+  els.btRefresh.disabled = true;
+  try {
+    const data = await api(`/api/speakers/${id}/bluetooth`);
+    if (state.btSpeakerId !== id) return;
+    applyBtResponse(data);
+  } catch (err) {
+    if (state.btSpeakerId !== id) return;
+    setBtStatus(els.btStatus, err.message, 'error');
+  } finally {
+    els.btRefresh.disabled = false;
+  }
+}
+
+async function runBtScan() {
+  const id = state.btSpeakerId;
+  if (!id || state.btBusy) return;
+  state.btBusy = true;
+  els.btScan.disabled = true;
+  els.btScan.textContent = 'Ищем…';
+  setBtStatus(els.btScanStatus, 'Сканируем Bluetooth-устройства рядом…');
+  try {
+    const data = await api(`/api/speakers/${id}/bluetooth/scan`, { method: 'POST' });
+    if (state.btSpeakerId !== id) return;
+    applyBtResponse(data);
+  } catch (err) {
+    if (state.btSpeakerId !== id) return;
+    state.bt = { ...(state.bt || {}), error: err.message, scanning: false };
+  } finally {
+    state.btBusy = false;
+    els.btScan.textContent = 'Найти';
+    renderBt(state.bt);
+  }
+}
+
+async function runBtDiscoverable() {
+  const id = state.btSpeakerId;
+  if (!id || state.btBusy) return;
+  state.btBusy = true;
+  els.btDiscoverable.disabled = true;
+  els.btHint.textContent = 'Включаем режим сопряжения…';
+  try {
+    const data = await api(`/api/speakers/${id}/bluetooth/discoverable`, { method: 'POST' });
+    if (state.btSpeakerId !== id) return;
+    applyBtResponse(data);
+    els.btHint.textContent =
+      'Режим сопряжения включён. Откройте Bluetooth на телефоне или компьютере, ' +
+      'найдите колонку и подключитесь к ней.';
+    toast('Bluetooth-сопряжение включено на колонке', 'success');
+    window.setTimeout(() => loadBluetooth({ silent: true }), 1200);
+  } catch (err) {
+    if (state.btSpeakerId !== id) return;
+    els.btHint.textContent = BT_HINT;
+    toast(err.message, 'error');
+  } finally {
+    state.btBusy = false;
+    els.btDiscoverable.disabled = false;
+  }
+}
+
+async function runBtCommand(mac, command, button) {
+  const id = state.btSpeakerId;
+  if (!id || state.btBusy) return;
+  state.btBusy = true;
+  if (button) {
+    button.disabled = true;
+    button.classList.add('busy');
+  }
+  const labels = { connect: 'Подключаем…', disconnect: 'Отключаем…', remove: 'Удаляем…' };
+  setBtStatus(els.btStatus, labels[command] || 'Отправляем команду…');
+  try {
+    const data = await api(`/api/speakers/${id}/bluetooth/command`, {
+      method: 'POST',
+      body: { mac, command },
+    });
+    if (state.btSpeakerId !== id) return;
+    applyBtResponse(data);
+    const messages = {
+      connect: 'Команда подключения отправлена',
+      disconnect: 'Устройство отключено',
+      remove: 'Устройство удалено из спаренных',
+    };
+    toast(messages[command] || 'Готово', 'success');
+  } catch (err) {
+    if (state.btSpeakerId !== id) return;
+    setBtStatus(els.btStatus, err.message, 'error');
+    toast(err.message, 'error');
+  } finally {
+    state.btBusy = false;
+    if (button) {
+      button.disabled = false;
+      button.classList.remove('busy');
+    }
+    els.btScan.disabled = false;
+  }
+}
+
+function openBluetooth(sp) {
+  state.btSpeakerId = sp.id;
+  state.btBusy = false;
+  state.bt = null;
+  els.btTitle.textContent = `Bluetooth · ${sp.name}`;
+  els.btTarget.textContent = 'Сопряжение и подключение устройств к этой колонке';
+  els.btHint.textContent = BT_HINT;
+  els.btDiscoverable.disabled = false;
+  els.btRefresh.disabled = false;
+  els.btScan.disabled = false;
+  els.btList.replaceChildren();
+  els.btScanList.replaceChildren();
+  setBtStatus(els.btStatus, '');
+  setBtStatus(els.btScanStatus, '');
+  openDialog(els.btDialog);
+  loadBluetooth();
+}
+
+function bindBluetooth() {
+  els.closeBt.addEventListener('click', () => {
+    state.btSpeakerId = null;
+    closeDialog(els.btDialog);
+  });
+  els.btDialog.addEventListener('close', () => {
+    state.btSpeakerId = null;
+  });
+  els.btRefresh.addEventListener('click', () => loadBluetooth());
+  els.btScan.addEventListener('click', () => runBtScan());
+  els.btDiscoverable.addEventListener('click', () => runBtDiscoverable());
+  els.btList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-bt-action]');
+    if (!button) return;
+    const row = button.closest('.bt-item');
+    if (!row) return;
+    runBtCommand(row.dataset.mac, button.dataset.btAction, button);
+  });
+}
+
 /* ── add dialog ──────────────────────────────────────── */
 
 function bindDialog() {
@@ -1500,6 +1768,7 @@ function init() {
   bindDialog();
   bindSearch();
   bindQueue();
+  bindBluetooth();
   connectEvents();
   poll();
   pollTimer = setInterval(poll, 15000);

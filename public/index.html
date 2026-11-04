@@ -142,6 +142,48 @@
       </div>
     </dialog>
 
+    <dialog class="dialog bt-dialog" id="btDialog">
+      <div class="dialog-inner">
+        <header class="dialog-head">
+          <div class="queue-heading">
+            <h2 id="btTitle">Bluetooth</h2>
+            <div class="queue-context" id="btTarget"></div>
+          </div>
+          <button class="icon-btn" type="button" id="closeBt" title="Закрыть" aria-label="Закрыть">
+            <span data-icon="x"></span>
+          </button>
+        </header>
+
+        <div class="bt-pair-box">
+          <button class="btn accent wide" type="button" id="btDiscoverable">
+            <span class="btn-ico" data-icon="bluetooth"></span> Режим сопряжения
+          </button>
+          <div class="bt-hint" id="btHint">
+            Колонка станет видимой по Bluetooth. Подключите к ней телефон или компьютер
+            в настройках Bluetooth — звук пойдёт с вашего устройства.
+          </div>
+        </div>
+
+        <section class="bt-section">
+          <div class="bt-section-head">
+            <h3>Спаренные устройства</h3>
+            <button class="btn small ghost" type="button" id="btRefresh">Обновить</button>
+          </div>
+          <div class="queue-status" id="btStatus" hidden></div>
+          <div class="bt-list" id="btList"></div>
+        </section>
+
+        <section class="bt-section">
+          <div class="bt-section-head">
+            <h3>Рядом</h3>
+            <button class="btn small ghost" type="button" id="btScan">Найти</button>
+          </div>
+          <div class="queue-status" id="btScanStatus" hidden></div>
+          <div class="bt-list" id="btScanList"></div>
+        </section>
+      </div>
+    </dialog>
+
     <dialog class="dialog search-dialog" id="searchDialog">
       <div class="dialog-inner">
         <header class="dialog-head">
@@ -278,6 +320,9 @@
           </button>
           <button class="link-btn queue-btn" data-action="queue" title="Очередь колонки">
             <span data-icon="queue"></span> Очередь
+          </button>
+          <button class="link-btn bt-btn" data-action="bluetooth" title="Bluetooth-устройства колонки">
+            <span data-icon="bluetooth"></span> Bluetooth
           </button>
           <button class="link-btn" data-action="refresh">Обновить</button>
           <span class="state-label"></span>

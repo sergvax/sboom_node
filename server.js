@@ -68,6 +68,29 @@ app.get('/api/speakers/:id/queue', wrap(async (req, res) => {
   res.json(await manager.getQueue(req.params.id));
 }));
 
+// ───────────────────────────── bluetooth ─────────────────────────────
+
+app.get('/api/speakers/:id/bluetooth', wrap(async (req, res) => {
+  const bt = await manager.bluetoothInfo(req.params.id);
+  res.json({ bt, state: manager.snapshot() });
+}));
+
+app.post('/api/speakers/:id/bluetooth/discoverable', wrap(async (req, res) => {
+  const bt = await manager.bluetoothDiscoverable(req.params.id);
+  res.json({ bt, state: manager.snapshot() });
+}));
+
+app.post('/api/speakers/:id/bluetooth/scan', wrap(async (req, res) => {
+  const bt = await manager.bluetoothScan(req.params.id);
+  res.json({ bt, state: manager.snapshot() });
+}));
+
+app.post('/api/speakers/:id/bluetooth/command', wrap(async (req, res) => {
+  const { mac, command } = req.body || {};
+  const bt = await manager.bluetoothCommand(req.params.id, mac, command);
+  res.json({ bt, state: manager.snapshot() });
+}));
+
 // История запусков из поиска: только то, что пользователь сам нашёл и включил.
 app.get('/api/history', wrap(async (req, res) => {
   const limit = Math.max(1, Math.min(60, Number(req.query.limit) || 30));

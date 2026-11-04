@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  parsePairedBt,
   parseQueue,
+  parseScannedBt,
   parseState,
   parseTrack,
   trackFromState,
@@ -11,7 +13,7 @@ import {
 } from '../lib/parsers.js';
 import { parseHostInput } from '../lib/manager.js';
 import { field } from '../lib/tlv.js';
-import { OP_GET_PLAYING_QUEUE } from '../lib/protocol.js';
+import { OP_GET_PAIRED_BT, OP_GET_PLAYING_QUEUE, OP_GET_SCANNED_BT } from '../lib/protocol.js';
 
 const pushTrack = Buffer.concat([
   Buffer.from([0, 0]),
@@ -239,6 +241,40 @@ test('parseQueue: JSON-строка op=17 и отсев мусора', () => {
 test('parseQueue: пустой ответ → []', () => {
   assert.deepEqual(parseQueue(Buffer.alloc(0)), []);
   assert.deepEqual(parseQueue(field(OP_GET_PLAYING_QUEUE, 2, Buffer.alloc(0))), []);
+});
+
+test('parsePairedBt: op=19 — MAC, имя и признак подключения', () => {
+  const device = (mac, name, connected) =>
+    Buffer.concat([field(1, 2, mac), field(2, 2, name), field(3, 0, connected ? 1 : 0)]);
+  const inner = Buffer.concat([
+    field(1, 2, device('AA:BB:CC:DD:EE:FF', 'Phone', true)),
+    field(1, 2, device('11:22:33:44:55:66', 'Headphones', false)),
+  ]);
+  const raw = field(5, 2, field(OP_GET_PAIRED_BT, 2, inner));
+  assert.deepEqual(parsePairedBt(raw), [
+    { mac: 'AA:BB:CC:DD:EE:FF', name: 'Phone', connected: true },
+    { mac: '11:22:33:44:55:66', name: 'Headphones', connected: false },
+  ]);
+});
+
+test('parseScannedBt: op=21 — MAC, имя и RSSI', () => {
+  const device = (mac, name, rssi) =>
+    Buffer.concat([field(1, 2, mac), field(2, 2, name), field(3, 0, rssi)]);
+  const inner = Buffer.concat([
+    field(2, 2, device('77:88:99:AA:BB:CC', 'Nearby', 42)),
+    field(2, 2, device('DD:EE:FF:00:11:22', '', 80)),
+  ]);
+  const raw = field(5, 2, field(OP_GET_SCANNED_BT, 2, inner));
+  assert.deepEqual(parseScannedBt(raw), [
+    { mac: '77:88:99:AA:BB:CC', name: 'Nearby', rssi: 42 },
+    { mac: 'DD:EE:FF:00:11:22', name: '', rssi: 80 },
+  ]);
+});
+
+test('BT-парсеры: пустой и мусорный ответ → []', () => {
+  assert.deepEqual(parsePairedBt(Buffer.alloc(0)), []);
+  assert.deepEqual(parseScannedBt(Buffer.from('not a tlv')), []);
+  assert.deepEqual(parsePairedBt(field(5, 2, Buffer.alloc(0))), []);
 });
 
 test('parseHostInput: нормализация IP, порта и URL', () => {
