@@ -1,6 +1,12 @@
 # SberBoom Standalone
 
+![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![CI](https://github.com/sergvax/sboom_node/actions/workflows/ci.yml/badge.svg)
+
 Локальное управление колонками SberBoom из браузера — **без Home Assistant**, без облака и без аккаунта Sber. Один процесс Node.js, веб-интерфейс доступен с любого устройства в вашей сети.
+
+![Веб-интерфейс SberBoom Standalone: три колонки, поиск, очередь и мультирум](docs/screenshot.png)
 
 ```
 ┌──────────────┐   HTTP/SSE   ┌──────────────┐   WSS :20000   ┌────────────┐
@@ -36,7 +42,8 @@
 ## Запуск
 
 ```bash
-cd sboom
+git clone https://github.com/sergvax/sboom_node.git
+cd sboom_node
 npm install
 npm start
 ```
@@ -219,21 +226,24 @@ launchctl load ~/Library/LaunchAgents/local.sboom.plist
 ## Структура
 
 ```
-sboom/
+sboom_node/
 ├── server.js            HTTP API + SSE + статика
 ├── lib/
 │   ├── tlv.js           бинарный TLV-кодек
 │   ├── protocol.js      опкоды и константы
-│   ├── parsers.js       разбор track/state/queue JSON
-│   ├── speaker.js       WS-клиент колонки + pair
+│   ├── parsers.js       разбор track/state/queue/BT
+│   ├── speaker.js       WS-клиент колонки + pair + Bluetooth
 │   ├── manager.js       supervisor на колонку, optimistic-команды
 │   ├── zvuk.js          каталог Звука: поиск, метаданные, deeplink
 │   ├── history.js       история запусков из поиска
 │   ├── discovery.js     mDNS _staros._tcp
 │   └── store.js         JSON-хранилище
 ├── public/              веб-интерфейс (без сборки)
+├── docs/screenshot.png  скриншот интерфейса для README
 ├── mock/speaker.js      мок-колонка для демо и тестов
-└── test/                node:test
+├── test/                node:test
+├── CHANGELOG.md         история версий
+└── .github/workflows/   CI (npm test)
 ```
 
 ## Лицензия

@@ -1,9 +1,28 @@
 {
   "name": "sboom-standalone",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Standalone LAN-контроллер колонок SberBoom с веб-интерфейсом",
+  "license": "MIT",
+  "author": "sergvax",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sergvax/sboom_node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sergvax/sboom_node/issues"
+  },
+  "homepage": "https://github.com/sergvax/sboom_node#readme",
+  "keywords": [
+    "sberboom",
+    "sber",
+    "zvuk",
+    "smart-speaker",
+    "local-network",
+    "bluetooth",
+    "home-automation"
+  ],
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
