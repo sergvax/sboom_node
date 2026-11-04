@@ -38,6 +38,6 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "jsdom": "^30.1.3"
+    "jsdom": "^26.1.0"
   }
 }
