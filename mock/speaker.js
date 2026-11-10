@@ -39,7 +39,7 @@ function ensureCerts() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * @param {{port?:number, token?:string, pairDelayMs?:number, musicInCurrentApp?:boolean}} [opts]
+ * @param {{port?:number, token?:string, pairDelayMs?:number, musicInCurrentApp?:boolean, pinCode?:string|null}} [opts]
  */
 export async function startMockSpeaker(opts = {}) {
   const {
@@ -48,6 +48,7 @@ export async function startMockSpeaker(opts = {}) {
     pairDelayMs = 250,
     musicInCurrentApp = false,
     seekLatencyMs = 0,
+    pinCode = null,
   } = opts;
   const { key, cert } = ensureCerts();
   const server = https.createServer({ key, cert });
@@ -252,6 +253,19 @@ export async function startMockSpeaker(opts = {}) {
             field(4, 2, Buffer.concat([field(1, 0, 2), field(2, 2, token)])),
           );
         }, pairDelayMs);
+        return;
+      }
+
+      // PIN с экрана (pinValidateStrategy = "screen"): op=6, без токена.
+      if ('6' in req) {
+        if (pinCode === null) return;
+        const session = req[6]?.[1];
+        const code = req[6]?.[2];
+        const ok = session === 'mock-session' && String(code) === String(pinCode);
+        const body = ok
+          ? Buffer.concat([field(1, 0, 1), field(2, 2, token)])
+          : field(1, 0, 2);
+        reply(ws, msgId, field(6, 2, body));
         return;
       }
 
