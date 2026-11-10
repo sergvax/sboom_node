@@ -16,6 +16,7 @@ const ICONS = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1L11.5 4.4"/><path d="M14 11a5 5 0 0 0-7.1 0l-3 3A5 5 0 0 0 11 21.1l1.5-1.5"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
   multiroom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8.5" width="7" height="11" rx="2"/><circle cx="6.5" cy="16.2" r="1.3"/><path d="M14.5 7.5a6 6 0 0 1 0 9"/><path d="M18 4.5a10.5 10.5 0 0 1 0 15"/></svg>',
+  cast: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M7 20h10"/><path d="M8.5 12.6a3.7 3.7 0 0 1 3.7-3.7"/><path d="M8.5 9a6.7 6.7 0 0 1 6.7 6.7"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.2"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>',
   queue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="16" y2="7"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="17" x2="12" y2="17"/><path d="M19 13v7"/><path d="m16.5 17.5 2.5 2.5 2.5-2.5"/></svg>',
@@ -77,10 +78,12 @@ const els = {
 const state = {
   speakers: [],
   multiroom: null,
+  nativeMultiroom: null,
   serverTime: Date.now(),
   offset: 0,
   groupDragUntil: 0,
   mrBusy: false,
+  nativeBusy: false,
   searchSpeakerId: null,
   searchSeq: 0,
   historySeq: 0,
@@ -344,11 +347,24 @@ function updateCard(c, sp) {
 
   const inGroup = Boolean(mr.active && mr.memberIds?.includes(sp.id));
   const isSource = inGroup && mr.sourceId === sp.id;
-  c.multiChip.hidden = !inGroup;
-  c.multiChip.textContent = isSource ? 'источник' : 'мультирум';
-  c.multiChip.title = isSource
-    ? 'С этой колонки транслируется мультирум'
-    : 'Колонка повторяет трек источника';
+  const native = state.nativeMultiroom || {};
+  const nativeActive = native.state === 'active';
+  const nativeMember = nativeActive && (native.memberIds || []).includes(sp.id);
+  const nativeMaster = nativeMember && native.masterId === sp.id;
+
+  if (!inGroup && nativeMember) {
+    c.multiChip.hidden = false;
+    c.multiChip.textContent = nativeMaster ? 'нативный мастер' : 'нативный мультирум';
+    c.multiChip.title = nativeMaster
+      ? 'Эта колонка — мастер нативной SberCast-группы'
+      : 'Колонка играет в нативной SberCast-группе';
+  } else {
+    c.multiChip.hidden = !inGroup;
+    c.multiChip.textContent = isSource ? 'источник' : 'мультирум';
+    c.multiChip.title = isSource
+      ? 'С этой колонки транслируется мультирум'
+      : 'Колонка повторяет трек источника';
+  }
 
   c.shuffle.classList.toggle('active', Boolean(t?.shuffle));
   c.repeat.classList.toggle('active', Boolean(t) && (t.repeat || 'off') !== 'off');
@@ -467,8 +483,13 @@ function renderGroup(list) {
 
   const connected = list.filter((s) => s.status === 'connected');
   const mr = state.multiroom || {};
+  const native = state.nativeMultiroom || {};
   let sub = `${connected.length} из ${list.length} в сети`;
-  if (mr.state === 'starting') sub += ' · мультирум запускается…';
+  if (native.state === 'starting') sub += ' · нативный мультирум запускается…';
+  else if (native.state === 'stopping') sub += ' · нативный мультирум останавливается…';
+  else if (native.state === 'active') sub += ` · нативный мультирум: ${native.memberIds?.length || 0}`;
+  else if (native.message) sub += ` · ${native.message}`;
+  else if (mr.state === 'starting') sub += ' · мультирум запускается…';
   else if (mr.state === 'stopping') sub += ' · мультирум останавливается…';
   else if (mr.active) sub += ` · мультирум: ${mr.memberIds?.length || 0}`;
   else if (mr.message) sub += ` · ${mr.message}`;
@@ -1699,6 +1720,7 @@ function applySnapshot(data) {
   if (!data || !Array.isArray(data.speakers)) return;
   state.speakers = data.speakers;
   state.multiroom = data.multiroom || null;
+  state.nativeMultiroom = data.nativeMultiroom || null;
   state.serverTime = data.serverTime || Date.now();
   state.offset = state.serverTime - Date.now();
   render();

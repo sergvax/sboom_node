@@ -49,6 +49,9 @@ export async function startMockSpeaker(opts = {}) {
     musicInCurrentApp = false,
     seekLatencyMs = 0,
     pinCode = null,
+    multiroomOffDelayMs = 600,
+    onMultiroomStart = null,
+    onMultiroomStop = null,
   } = opts;
   const { key, cert } = ensureCerts();
   const server = https.createServer({ key, cert });
@@ -64,6 +67,14 @@ export async function startMockSpeaker(opts = {}) {
       { mac: '77:88:99:AA:BB:CC', name: 'Mock Speaker', rssi: 42 },
       { mac: 'DD:EE:FF:00:11:22', name: 'Mock Watch', rssi: 76 },
     ],
+  };
+
+  // Нативный мультирум: как на прошивке, START_MULTIROOM делает колонку
+  // мастером, пауза распускает группу с задержкой.
+  const multiroom = {
+    enabled: true,
+    mode: 'NONE',
+    stereoPair: { active: false, channelFromConfig: '', pairDeviceFromConfig: '' },
   };
 
   const st = {
@@ -124,6 +135,7 @@ export async function startMockSpeaker(opts = {}) {
     };
     return JSON.stringify({
       volume: { muted: st.muted, percent: st.volume },
+      multiroom,
       network: { connection_type: 'WIFI', ip: '127.0.0.1' },
       capabilities_state: { led_display: { brightness: 100, turned_on: true } },
       time: { timezone_id: 'Europe/Moscow' },
@@ -215,6 +227,19 @@ export async function startMockSpeaker(opts = {}) {
   const pushMeta = (ws) => reply(ws, randomUUID(), field(10, 2, trackJson()));
 
   const clients = new Set();
+  let multiroomOffTimer = null;
+
+  /** Пауза на мастере → через multiroomOffDelayMs группа распускается. */
+  const scheduleMultiroomOff = () => {
+    if (multiroom.mode === 'NONE') return;
+    clearTimeout(multiroomOffTimer);
+    multiroomOffTimer = setTimeout(() => {
+      multiroom.mode = 'NONE';
+      onMultiroomStop?.(multiroom);
+      for (const client of clients) pushState(client);
+    }, multiroomOffDelayMs);
+    multiroomOffTimer.unref?.();
+  };
 
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -339,9 +364,23 @@ export async function startMockSpeaker(opts = {}) {
       }
       if ('16' in req) {
         const action = Number(req[16]?.[1]);
+        if (action === 8) {
+          // START_MULTIROOM: без активного источника прошивка отказывает.
+          if (!st.playing) {
+            reply(ws, msgId, field(16, 2, field(1, 0, 1)));
+            return;
+          }
+          clearTimeout(multiroomOffTimer);
+          multiroom.mode = 'MASTER';
+          onMultiroomStart?.(multiroom);
+          reply(ws, msgId, field(16, 2, Buffer.alloc(0)));
+          pushState(ws);
+          pushMeta(ws);
+          return;
+        }
         switch (action) {
           case 4: st.positionAt = Date.now(); st.playing = true; break;
-          case 5: pauseClock(); st.playing = false; break;
+          case 5: pauseClock(); st.playing = false; scheduleMultiroomOff(); break;
           case 2: st.trackId = String(Number(st.trackId) + 1); st.title = `Mock Track ${st.trackId}`; st.position = 0; st.positionAt = Date.now(); break;
           case 3: st.trackId = String(Math.max(1, Number(st.trackId) - 1)); st.title = `Mock Track ${st.trackId}`; st.position = 0; st.positionAt = Date.now(); break;
           case 0: st.muted = true; break;
@@ -373,6 +412,7 @@ export async function startMockSpeaker(opts = {}) {
     token,
     state: st,
     bt,
+    multiroom,
     async close() {
       for (const ws of clients) {
         try {

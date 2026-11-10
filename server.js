@@ -189,6 +189,18 @@ app.post('/api/multiroom/leave', wrap(async (req, res) => {
   res.json({ multiroom, state: manager.snapshot() });
 }));
 
+// Нативный SberCast-мультирум (MediaCommand START_MULTIROOM).
+app.post('/api/multiroom/native/start', wrap(async (req, res) => {
+  const { masterId } = req.body || {};
+  const native = await manager.startNativeMultiroom(masterId);
+  res.json({ native, state: manager.snapshot() });
+}));
+
+app.post('/api/multiroom/native/stop', wrap(async (_req, res) => {
+  const native = await manager.stopNativeMultiroom();
+  res.json({ native, state: manager.snapshot() });
+}));
+
 // Server-Sent Events: живые обновления состояния.
 app.get('/api/events', (req, res) => {
   res.set({
