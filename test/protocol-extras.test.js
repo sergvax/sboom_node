@@ -64,7 +64,7 @@ test('StarCommand show_youtube: source внутри BaseCommand + payload JSON',
   assert.deepEqual(JSON.parse(show[2]), { searchQuery: 'nirvana' });
 });
 
-test('sendStarCommand: конверт type=3, поле 8 = CastStarCommandData.data', () => {
+test('sendStarCommand: конверт type=3, поле 8 = CastStarCommandData.data', async () => {
   const c = client();
   const star = c.makeShowYoutubeStarCommand({ videoId: 'xyz' });
   const seen = [];
@@ -73,14 +73,15 @@ test('sendStarCommand: конверт type=3, поле 8 = CastStarCommandData.d
   c._send = async (buf) => { seen.push(buf); };
   // Ответ не нужен — проверяем только отправленный конверт.
   c._pending = new Map();
-  const p = c.sendStarCommand(star, 50).catch(() => {});
-  return p.then(() => {
-    const env = decode(seen[0]);
-    assert.equal(env[1], 3); // STAR_COMMAND
-    assert.equal(typeof env[8], 'object');
-    assert.equal(typeof env[8][1], 'object');
-    assert.ok(env[8][1][111]);
-  });
+  // Прошивка молчит на type=3: штатный исход — null, без исключения.
+  const res = await c.sendStarCommand(star, 50);
+  assert.equal(res, null);
+
+  const env = decode(seen[0]);
+  assert.equal(env[1], 3); // STAR_COMMAND
+  assert.equal(typeof env[8], 'object');
+  assert.equal(typeof env[8][1], 'object');
+  assert.ok(env[8][1][111]);
 });
 
 test('pairWithPin: INPUT_PIN_CODE → ConfirmPinConnect → токен', async () => {
