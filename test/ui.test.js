@@ -190,6 +190,45 @@ test('UI: мультирум — кнопки на карточках, чипы 
   }
 });
 
+test('UI: нативный мультирум — групповая кнопка и чипы MASTER/SLAVE', async () => {
+  const snapshot = {
+    serverTime: Date.now(),
+    speakers: [speaker(10, 'Кухня'), speaker(11, 'Спальня')],
+  };
+  const { dom, window, events } = await boot(snapshot);
+
+  try {
+    const doc = window.document;
+    const btn = doc.querySelector('[data-action="g-native"]');
+    assert.ok(btn, 'групповая кнопка нативного мультирума есть');
+    assert.equal(btn.disabled, false, 'есть играющий трек и вторая колонка');
+
+    const active = JSON.parse(JSON.stringify(snapshot));
+    active.nativeMultiroom = {
+      state: 'active',
+      masterId: 10,
+      memberIds: [10, 11],
+      error: null,
+      message: null,
+    };
+    active.speakers[0].multiroom = { enabled: true, mode: 'MASTER', stereoPair: null };
+    active.speakers[1].multiroom = { enabled: true, mode: 'SLAVE', stereoPair: null };
+    events[0].onmessage({ data: JSON.stringify(active) });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.ok(btn.classList.contains('active'));
+    assert.match(btn.innerHTML, /<rect/, 'иконка стоп');
+    assert.match(doc.querySelector('#groupSub').textContent, /нативный мультирум: 2/);
+
+    const cards = [...doc.querySelectorAll('.card')];
+    assert.equal(cards[0].querySelector('.chip.multi').textContent, 'нативный мастер');
+    assert.equal(cards[1].querySelector('.chip.multi').textContent, 'нативный мультирум');
+    assert.equal(cards[0].querySelector('.chip.multi').hidden, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('UI: поиск из карточки колонки, история и возврат к карточке', async () => {
   const snapshot = {
     serverTime: Date.now(),

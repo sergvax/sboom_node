@@ -95,9 +95,19 @@ test('parseState: volume/muted + подсистемы устройства', () 
     alarm: { alarms: [], alarmsCounter: 0, playing: null, timers: [] },
     assistant: { auto_volume: false, character: 'afina' },
     background_apps: [
-      { app_info: { systemName: 'music' }, state: { player: { playing: true } } },
+      {
+        app_info: { systemName: 'music' },
+        state: {
+          player: { playing: true, position: 12, duration: 200, info: { title: 'Test', trackId: '42' } },
+        },
+      },
     ],
     capabilities_state: { led_display: { brightness: 100, turned_on: true } },
+    multiroom: {
+      enabled: true,
+      mode: 'MASTER',
+      stereoPair: { active: false, channelFromConfig: '', pairDeviceFromConfig: '' },
+    },
     network: { connection_type: 'WIFI', ip: '192.168.1.42' },
     time: { timezone_id: 'Europe/Moscow' },
     volume: { muted: false, percent: 3 },
@@ -110,6 +120,11 @@ test('parseState: volume/muted + подсистемы устройства', () 
   assert.equal(st.device.network_ip, '192.168.1.42');
   assert.equal(st.device.led_brightness, 100);
   assert.equal(st.device.timezone_id, 'Europe/Moscow');
+  assert.equal(st.multiroom.mode, 'MASTER');
+  assert.equal(st.multiroom.enabled, true);
+  assert.equal(st.multiroom.stereoPair.active, false);
+  assert.equal(st.player.playing, true);
+  assert.equal(st.player.source, 'music');
 });
 
 test('parseState: битый JSON → fallback на regex volume', () => {

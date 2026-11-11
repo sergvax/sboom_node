@@ -513,10 +513,10 @@ function renderGroup(list) {
   if (muteIco) muteIco.innerHTML = allMuted ? ICONS.mute : ICONS.volume;
 
   // Групповая кнопка мультирума: включить / остановить.
+  const hasSource = connected.some(isMusicTrack);
   const mrBtn = $('[data-action="g-multiroom"]', els.groupPanel);
   if (mrBtn) {
     const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
-    const hasSource = connected.some(isMusicTrack);
     const icon = mr.active ? 'stop' : 'multiroom';
     const ico = $('[data-icon]', mrBtn);
     if (ico && ico.dataset.icon !== icon) {
@@ -524,12 +524,42 @@ function renderGroup(list) {
       ico.innerHTML = ICONS[icon];
     }
     mrBtn.classList.toggle('active', Boolean(mr.active));
-    mrBtn.disabled = busy || (!mr.active && (!hasSource || connected.length < 2));
+    mrBtn.disabled =
+      busy ||
+      native.state === 'active' ||
+      (!mr.active && (!hasSource || connected.length < 2));
     mrBtn.title = mr.active
       ? 'Остановить мультирум'
-      : hasSource
-        ? 'Включить этот трек на всех колонках'
-        : 'Включите музыку Звука на одной из колонок';
+      : native.state === 'active'
+        ? 'Сначала выключите нативный мультирум'
+        : hasSource
+          ? 'Включить этот трек на всех колонках'
+          : 'Включите музыку Звука на одной из колонок';
+  }
+
+  // Нативный SberCast-мультирум: его строит сама прошивка.
+  const nativeBtn = $('[data-action="g-native"]', els.groupPanel);
+  if (nativeBtn) {
+    const busy = state.nativeBusy || native.state === 'starting' || native.state === 'stopping';
+    const active = native.state === 'active';
+    const icon = active ? 'stop' : 'cast';
+    const ico = $('[data-icon]', nativeBtn);
+    if (ico && ico.dataset.icon !== icon) {
+      ico.dataset.icon = icon;
+      ico.innerHTML = ICONS[icon];
+    }
+    nativeBtn.classList.toggle('active', active);
+    nativeBtn.disabled =
+      busy ||
+      mr.active ||
+      (!active && (!hasSource || connected.length < 2));
+    nativeBtn.title = active
+      ? 'Выключить нативный мультирум'
+      : mr.active
+        ? 'Сначала выключите программный мультирум'
+        : hasSource
+          ? 'Нативный мультирум: группу строит сама колонка'
+          : 'Включите музыку Звука на одной из колонок';
   }
 }
 
@@ -721,6 +751,51 @@ async function leaveMultiroom(sp) {
   }
 }
 
+/* ── нативный мультирум ─────────────────────────────── */
+
+async function startNativeMultiroom(sp) {
+  const nm = state.nativeMultiroom || {};
+  if (state.nativeBusy || nm.state === 'starting' || nm.state === 'stopping') return;
+  const ok = window.confirm(
+    `Включить нативный мультирум с «${sp.name}»?\n\n` +
+      'Группу строит сама колонка — звук пойдёт на все колонки SberCast в этой сети.',
+  );
+  if (!ok) return;
+  state.nativeBusy = true;
+  render();
+  try {
+    const data = await api('/api/multiroom/native/start', {
+      method: 'POST',
+      body: { masterId: sp.id },
+    });
+    if (data.state) applySnapshot(data.state);
+    const message = data.native?.message;
+    toast(message || 'Нативный мультирум включён', message ? 'error' : 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    state.nativeBusy = false;
+    render();
+  }
+}
+
+async function stopNativeMultiroom() {
+  if (state.nativeBusy) return;
+  state.nativeBusy = true;
+  render();
+  try {
+    const data = await api('/api/multiroom/native/stop', { method: 'POST' });
+    if (data.state) applySnapshot(data.state);
+    const message = data.native?.message;
+    toast(message || 'Нативный мультирум выключен', message ? 'error' : 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    state.nativeBusy = false;
+    render();
+  }
+}
+
 /* ── group controls ──────────────────────────────────── */
 
 function bindGroup() {
@@ -745,6 +820,21 @@ function bindGroup() {
         return;
       }
       await startMultiroom(source);
+    }
+    if (action === 'g-native') {
+      const nm = state.nativeMultiroom || {};
+      if (nm.state === 'active') {
+        await stopNativeMultiroom();
+        return;
+      }
+      const source =
+        connected.find((s) => s.track?.playing && isMusicTrack(s)) ||
+        connected.find((s) => s.player?.playing);
+      if (!source) {
+        toast('Включите музыку Звука на одной из колонок', 'error');
+        return;
+      }
+      await startNativeMultiroom(source);
     }
     if (action === 'g-playpause') {
       const anyPlaying = state.speakers.some((s) => s.track?.playing);
