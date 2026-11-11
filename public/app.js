@@ -77,12 +77,10 @@ const els = {
 
 const state = {
   speakers: [],
-  multiroom: null,
   nativeMultiroom: null,
   serverTime: Date.now(),
   offset: 0,
   groupDragUntil: 0,
-  mrBusy: false,
   nativeBusy: false,
   searchSpeakerId: null,
   searchSeq: 0,
@@ -315,7 +313,10 @@ function render() {
 function updateCard(c, sp) {
   const t = sp.track;
   const online = sp.status === 'connected';
-  const mr = state.multiroom || {};
+  const native = state.nativeMultiroom || {};
+  const nativeActive = native.state === 'active';
+  const inGroup = Boolean(nativeActive && native.memberIds?.includes(sp.id));
+  const isSource = inGroup && native.masterId === sp.id;
 
   c.dot.className = `status-dot ${dotClass(sp)}`;
   c.dot.title = sp.error || statusLabel(sp);
@@ -345,25 +346,16 @@ function updateCard(c, sp) {
   c.source.textContent = sourceText;
   c.buffer.hidden = !t?.buffering;
 
-  const inGroup = Boolean(mr.active && mr.memberIds?.includes(sp.id));
-  const isSource = inGroup && mr.sourceId === sp.id;
-  const native = state.nativeMultiroom || {};
-  const nativeActive = native.state === 'active';
-  const nativeMember = nativeActive && (native.memberIds || []).includes(sp.id);
-  const nativeMaster = nativeMember && native.masterId === sp.id;
-
-  if (!inGroup && nativeMember) {
+  if (inGroup) {
     c.multiChip.hidden = false;
-    c.multiChip.textContent = nativeMaster ? 'нативный мастер' : 'нативный мультирум';
-    c.multiChip.title = nativeMaster
+    c.multiChip.textContent = isSource ? 'нативный мастер' : 'нативный мультирум';
+    c.multiChip.title = isSource
       ? 'Эта колонка — мастер нативной SberCast-группы'
       : 'Колонка играет в нативной SberCast-группе';
   } else {
-    c.multiChip.hidden = !inGroup;
-    c.multiChip.textContent = isSource ? 'источник' : 'мультирум';
-    c.multiChip.title = isSource
-      ? 'С этой колонки транслируется мультирум'
-      : 'Колонка повторяет трек источника';
+    c.multiChip.hidden = true;
+    c.multiChip.textContent = '';
+    c.multiChip.title = '';
   }
 
   c.shuffle.classList.toggle('active', Boolean(t?.shuffle));
@@ -430,39 +422,42 @@ function isMusicTrack(sp) {
   return !source || source === 'MUSIC';
 }
 
+/** Источник, с которого прошивка сможет построить нативную группу. */
+function isPlayableSource(sp) {
+  if (sp.player?.playing) return true;
+  return Boolean(sp.track?.playing && isMusicTrack(sp));
+}
+
 function updateMultiButton(c, sp, { online, inGroup, isSource }) {
-  const mr = state.multiroom || {};
-  const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
+  const native = state.nativeMultiroom || {};
+  const busy =
+    state.nativeBusy || native.state === 'starting' || native.state === 'stopping';
   const others = state.speakers.filter((s) => s.id !== sp.id && s.status === 'connected').length;
 
   let label = 'Мультирум';
   let icon = 'multiroom';
   let disabled = busy || !online;
-  let title = 'Включить этот трек на остальных колонках';
+  let title = 'Включить этот трек на остальных колонках (нативный SberCast)';
 
-  if (isSource) {
+  if (inGroup) {
     label = 'Стоп';
     icon = 'stop';
-    title = 'Остановить мультирум';
-    disabled = busy;
-    c.multiBtn.classList.add('active');
-  } else if (inGroup) {
-    label = 'Выйти';
-    title = 'Отключить эту колонку от мультирума';
+    title = isSource
+      ? 'Остановить нативный мультирум'
+      : 'Остановить нативный мультирум — пауза на мастере';
     disabled = busy;
     c.multiBtn.classList.add('active');
   } else {
     c.multiBtn.classList.remove('active');
-    const hasTrack = isMusicTrack(sp);
-    if (mr.active) {
+    if (native.state === 'active') {
       disabled = true;
       title = 'Мультирум уже включён с другой колонки';
     } else if (!others) {
       disabled = true;
       title = 'Нужна ещё хотя бы одна подключённая колонка';
-    } else if (!hasTrack) {
+    } else if (!isPlayableSource(sp)) {
       disabled = true;
-      title = 'Включите музыку Звука — радио и Bluetooth не переносятся';
+      title = 'Включите музыку Звука или радио на этой колонке';
     }
   }
 
@@ -482,17 +477,12 @@ function renderGroup(list) {
   if (!show) return;
 
   const connected = list.filter((s) => s.status === 'connected');
-  const mr = state.multiroom || {};
   const native = state.nativeMultiroom || {};
   let sub = `${connected.length} из ${list.length} в сети`;
-  if (native.state === 'starting') sub += ' · нативный мультирум запускается…';
-  else if (native.state === 'stopping') sub += ' · нативный мультирум останавливается…';
+  if (native.state === 'starting') sub += ' · мультирум запускается…';
+  else if (native.state === 'stopping') sub += ' · мультирум останавливается…';
   else if (native.state === 'active') sub += ` · нативный мультирум: ${native.memberIds?.length || 0}`;
   else if (native.message) sub += ` · ${native.message}`;
-  else if (mr.state === 'starting') sub += ' · мультирум запускается…';
-  else if (mr.state === 'stopping') sub += ' · мультирум останавливается…';
-  else if (mr.active) sub += ` · мультирум: ${mr.memberIds?.length || 0}`;
-  else if (mr.message) sub += ` · ${mr.message}`;
   els.groupSub.textContent = sub;
 
   if (Date.now() > state.groupDragUntil) {
@@ -512,54 +502,26 @@ function renderGroup(list) {
   const muteIco = $('[data-action="g-mute"] [data-icon]');
   if (muteIco) muteIco.innerHTML = allMuted ? ICONS.mute : ICONS.volume;
 
-  // Групповая кнопка мультирума: включить / остановить.
-  const hasSource = connected.some(isMusicTrack);
+  // Групповая кнопка мультирума: нативный SberCast, группу строит прошивка.
+  const hasSource = connected.some(isPlayableSource);
   const mrBtn = $('[data-action="g-multiroom"]', els.groupPanel);
   if (mrBtn) {
-    const busy = state.mrBusy || mr.state === 'starting' || mr.state === 'stopping';
-    const icon = mr.active ? 'stop' : 'multiroom';
+    const busy =
+      state.nativeBusy || native.state === 'starting' || native.state === 'stopping';
+    const active = native.state === 'active';
+    const icon = active ? 'stop' : 'cast';
     const ico = $('[data-icon]', mrBtn);
     if (ico && ico.dataset.icon !== icon) {
       ico.dataset.icon = icon;
       ico.innerHTML = ICONS[icon];
     }
-    mrBtn.classList.toggle('active', Boolean(mr.active));
-    mrBtn.disabled =
-      busy ||
-      native.state === 'active' ||
-      (!mr.active && (!hasSource || connected.length < 2));
-    mrBtn.title = mr.active
-      ? 'Остановить мультирум'
-      : native.state === 'active'
-        ? 'Сначала выключите нативный мультирум'
-        : hasSource
-          ? 'Включить этот трек на всех колонках'
-          : 'Включите музыку Звука на одной из колонок';
-  }
-
-  // Нативный SberCast-мультирум: его строит сама прошивка.
-  const nativeBtn = $('[data-action="g-native"]', els.groupPanel);
-  if (nativeBtn) {
-    const busy = state.nativeBusy || native.state === 'starting' || native.state === 'stopping';
-    const active = native.state === 'active';
-    const icon = active ? 'stop' : 'cast';
-    const ico = $('[data-icon]', nativeBtn);
-    if (ico && ico.dataset.icon !== icon) {
-      ico.dataset.icon = icon;
-      ico.innerHTML = ICONS[icon];
-    }
-    nativeBtn.classList.toggle('active', active);
-    nativeBtn.disabled =
-      busy ||
-      mr.active ||
-      (!active && (!hasSource || connected.length < 2));
-    nativeBtn.title = active
-      ? 'Выключить нативный мультирум'
-      : mr.active
-        ? 'Сначала выключите программный мультирум'
-        : hasSource
-          ? 'Нативный мультирум: группу строит сама колонка'
-          : 'Включите музыку Звука на одной из колонок';
+    mrBtn.classList.toggle('active', active);
+    mrBtn.disabled = busy || (!active && (!hasSource || connected.length < 2));
+    mrBtn.title = active
+      ? 'Остановить нативный мультирум'
+      : hasSource
+        ? 'Нативный мультирум: группу строит сама колонка'
+        : 'Включите музыку Звука или радио на одной из колонок';
   }
 }
 
@@ -686,69 +648,23 @@ async function addSpeaker({ name, host, port }) {
   await api('/api/speakers', { method: 'POST', body: { name, host, port } });
 }
 
-/* ── multiroom ───────────────────────────────────────── */
+/* ── мультирум ───────────────────────────────────────── */
 
+/**
+ * Карточка всегда управляет НАТИВНЫМ мультирумом. Программная
+ * синхронизация через deeplink оставлена только в API (`/api/multiroom/*`),
+ * в интерфейсе её нет — она даёт слышимый рассинхрон.
+ */
 async function onMultiroom(sp) {
-  const mr = state.multiroom || {};
-  if (mr.active && mr.sourceId === sp.id) return stopMultiroom();
-  if (mr.active && mr.memberIds?.includes(sp.id)) return leaveMultiroom(sp);
-  return startMultiroom(sp);
-}
-
-async function startMultiroom(sp) {
-  const mr = state.multiroom || {};
-  if (state.mrBusy || mr.state === 'starting') return;
-  state.mrBusy = true;
-  render();
-  try {
-    const data = await api('/api/multiroom/start', {
-      method: 'POST',
-      body: { sourceId: sp.id },
-    });
-    if (data.state) applySnapshot(data.state);
-    const msg = data.multiroom?.message;
-    toast(msg || 'Мультирум включён — колонки играют один трек', msg ? 'error' : 'success');
-  } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    state.mrBusy = false;
-    render();
+  const native = state.nativeMultiroom || {};
+  if (native.state === 'active' || native.state === 'starting' || native.state === 'stopping') {
+    return stopNativeMultiroom();
   }
-}
-
-async function stopMultiroom() {
-  if (state.mrBusy) return;
-  state.mrBusy = true;
-  render();
-  try {
-    const data = await api('/api/multiroom/stop', { method: 'POST' });
-    if (data.state) applySnapshot(data.state);
-    toast('Мультирум выключен');
-  } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    state.mrBusy = false;
-    render();
+  if (!isPlayableSource(sp)) {
+    toast('Включите музыку Звука или радио на этой колонке', 'error');
+    return;
   }
-}
-
-async function leaveMultiroom(sp) {
-  if (state.mrBusy) return;
-  state.mrBusy = true;
-  render();
-  try {
-    const data = await api('/api/multiroom/leave', {
-      method: 'POST',
-      body: { id: sp.id },
-    });
-    if (data.state) applySnapshot(data.state);
-    toast(`«${sp.name}» вышла из мультирума`);
-  } catch (err) {
-    toast(err.message, 'error');
-  } finally {
-    state.mrBusy = false;
-    render();
-  }
+  return startNativeMultiroom(sp);
 }
 
 /* ── нативный мультирум ─────────────────────────────── */
@@ -806,32 +722,14 @@ function bindGroup() {
     const connected = state.speakers.filter((s) => s.status === 'connected');
 
     if (action === 'g-multiroom') {
-      const mr = state.multiroom || {};
-      if (mr.active) {
-        await stopMultiroom();
-        return;
-      }
-      const source =
-        connected.find(
-          (s) => s.track?.playing && isMusicTrack(s),
-        ) || connected.find(isMusicTrack);
-      if (!source) {
-        toast('Включите музыку Звука на одной из колонок', 'error');
-        return;
-      }
-      await startMultiroom(source);
-    }
-    if (action === 'g-native') {
-      const nm = state.nativeMultiroom || {};
-      if (nm.state === 'active') {
+      const native = state.nativeMultiroom || {};
+      if (native.state === 'active' || native.state === 'starting' || native.state === 'stopping') {
         await stopNativeMultiroom();
         return;
       }
-      const source =
-        connected.find((s) => s.track?.playing && isMusicTrack(s)) ||
-        connected.find((s) => s.player?.playing);
+      const source = connected.find(isPlayableSource);
       if (!source) {
-        toast('Включите музыку Звука на одной из колонок', 'error');
+        toast('Включите музыку Звука или радио на одной из колонок', 'error');
         return;
       }
       await startNativeMultiroom(source);
@@ -1809,7 +1707,6 @@ async function runDiscover() {
 function applySnapshot(data) {
   if (!data || !Array.isArray(data.speakers)) return;
   state.speakers = data.speakers;
-  state.multiroom = data.multiroom || null;
   state.nativeMultiroom = data.nativeMultiroom || null;
   state.serverTime = data.serverTime || Date.now();
   state.offset = state.serverTime - Date.now();

@@ -170,6 +170,9 @@ app.post('/api/group/command', wrap(async (req, res) => {
 }));
 
 // ───────────────────────────── мультирум ─────────────────────────────
+// Программная deeplink-синхронизация: оставлена для совместимости и как
+// фолбэк. UI использует только нативные /api/multiroom/native/* — они
+// синхронизируются прошивкой и не дают слышимого рассинхрона.
 
 app.post('/api/multiroom/start', wrap(async (req, res) => {
   const { sourceId } = req.body || {};
