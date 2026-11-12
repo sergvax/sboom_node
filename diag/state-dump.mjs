@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import { SpeakerClient } from '../lib/speaker.js';
+const cfg = JSON.parse(fs.readFileSync('data/speakers.json', 'utf8'));
+const sp = cfg.speakers.find((s) => s.name === 'SberPortal');
+const c = new SpeakerClient({ host: sp.host, port: sp.port, token: sp.token, clientId: sp.clientId, clientName: sp.clientName });
+await c.connect();
+const st = await c.getState();
+console.log('sbercast:', JSON.stringify(st.sbercast, null, 1).slice(0, 1500));
+console.log('player :', JSON.stringify(st.player, null, 1).slice(0, 1200));
+console.log('timesync:', JSON.stringify(st.timesync));
+c.close();

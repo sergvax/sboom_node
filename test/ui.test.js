@@ -204,6 +204,23 @@ test('UI: мультирум — только нативный режим, кн�
     assert.equal(groupBtn.disabled, false);
     assert.match(groupBtn.innerHTML, /<rect/, 'иконка стоп у групповой кнопки');
 
+    // Остановка: сервер отвечает сразу, UI сам показывает остаток роспуска.
+    const stopping = JSON.parse(JSON.stringify(active));
+    stopping.nativeMultiroom = {
+      state: 'stopping',
+      masterId: 10,
+      memberIds: [10, 11],
+      dissolveAt: Date.now() + 6000,
+    };
+    events[0].onmessage({ data: JSON.stringify(stopping) });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.match(
+      doc.querySelector('#groupSub').textContent,
+      /распускается, осталось ~6 с/,
+      'в панели виден обратный отсчёт роспуска',
+    );
+    assert.equal(doc.querySelector('[data-action="g-multiroom"]').disabled, true);
+
     // Колонка без активного источника не может стать мастером.
     const noTrack = JSON.parse(JSON.stringify(snapshot));
     noTrack.speakers[0].track = null;

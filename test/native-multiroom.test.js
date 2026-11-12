@@ -107,8 +107,11 @@ test('SpeakerManager: нативный мультирум MASTER/SLAVE, стоп
     assert.equal(fromA.player.playing, true);
 
     const stopped = await manager.stopNativeMultiroom();
-    assert.equal(stopped.state, 'idle');
-    assert.deepEqual(stopped.memberIds, []);
+    assert.equal(stopped.state, 'stopping', 'стоп отвечает сразу, роспуск — в фоне');
+    await manager.nativeStopTask;
+    const done = manager.snapshot().nativeMultiroom;
+    assert.equal(done.state, 'idle');
+    assert.deepEqual(done.memberIds, []);
     assert.equal(
       manager.snapshot().speakers.find((s) => s.id === a.id).multiroom.mode,
       'NONE',
@@ -125,12 +128,15 @@ test('SpeakerManager: нативный мультирум MASTER/SLAVE, стоп
 });
 
 test('SpeakerManager: стоп распускает живую группу и блокирует запуск трека', async () => {
+  // Прошивка «гасит» группу не мгновенно; модель с длинной задержкой
+  // проверяет, что API отвечает сразу, а роспуск идёт в фоне.
   const mockA = await startMockSpeaker({
+    multiroomOffDelayMs: 5000,
     onMultiroomStart: () => {
       mockB.multiroom.mode = 'SLAVE';
     },
   });
-  const mockB = await startMockSpeaker();
+  const mockB = await startMockSpeaker({ multiroomOffDelayMs: 5000 });
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-native-mr-stop-'));
   const manager = new SpeakerManager({ store: new Store(path.join(dir, 'speakers.json')) });
@@ -168,18 +174,17 @@ test('SpeakerManager: стоп распускает живую группу и �
     // Теперь состояние действительно idle: стоп обязан найти группу по живым
     // ролям колонок, а не по сохранённому masterId.
     manager._resetNative();
-    const stopping = manager.stopNativeMultiroom();
-    const stopped = await stopping;
-    assert.equal(stopped.state, 'idle');
-    assert.equal(mockA.multiroom.mode, 'NONE');
-    assert.equal(mockB.multiroom.mode, 'NONE');
-    assert.equal(
-      manager.snapshot().speakers.find((s) => s.id === b.id).multiroom.mode,
-      'NONE',
-    );
+    const stopStartedAt = Date.now();
+    const stopped = await manager.stopNativeMultiroom();
+    // Ответ приходит сразу: прошивка распускает группу сама, мы ждём в фоне.
+    const stopMs = Date.now() - stopStartedAt;
+    if (stopMs >= 1500) {
+      throw new Error(`стоп не должен ждать роспуска, ответил за ${stopMs} мс`);
+    }
+    assert.equal(stopped.state, 'stopping');
+    assert.ok(stopped.dissolveAt > stopStartedAt, 'оценка конца роспуска передана UI');
 
     // Пока группа распускается, запуск трека отменил бы роспуск.
-    manager.nativeMr = { ...manager.nativeMr, state: 'stopping' };
     await assert.rejects(
       () => manager.command(a.id, 'play'),
       /выходит из группы/,
@@ -190,6 +195,17 @@ test('SpeakerManager: стоп распускает живую группу и �
       /выходит из группы/,
       'запуск контента во время остановки должен быть заблокирован',
     );
+
+    await manager.nativeStopTask;
+    assert.equal(manager.snapshot().nativeMultiroom.state, 'idle');
+    assert.equal(mockA.multiroom.mode, 'NONE');
+    assert.equal(mockB.multiroom.mode, 'NONE');
+    assert.equal(
+      manager.snapshot().speakers.find((s) => s.id === b.id).multiroom.mode,
+      'NONE',
+    );
+    // Как только колонки вышли из группы, запуск снова разрешён.
+    await manager.command(a.id, 'play');
   } finally {
     await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
     await mockA.close();

@@ -486,6 +486,22 @@ function updateMultiButton(c, sp, { online, inGroup, isSource }) {
   }
 }
 
+/** Подпись группы: состав + фаза мультирума (с обратным отсчётом при стопе). */
+function groupSubText(list) {
+  const connected = list.filter((s) => s.status === 'connected');
+  const native = state.nativeMultiroom || {};
+  let sub = `${connected.length} из ${list.length} в сети`;
+  if (native.state === 'starting') sub += ' · мультирум запускается…';
+  else if (native.state === 'stopping') {
+    const left = Math.max(0, (native.dissolveAt ?? 0) - Date.now());
+    sub += left
+      ? ` · группа распускается, осталось ~${Math.ceil(left / 1000)} с`
+      : ' · колонки выходят из группы…';
+  } else if (native.state === 'active') sub += ` · нативный мультирум: ${native.memberIds?.length || 0}`;
+  else if (native.message) sub += ` · ${native.message}`;
+  return sub;
+}
+
 function renderGroup(list) {
   const show = list.length >= 2;
   els.groupPanel.hidden = !show;
@@ -493,12 +509,18 @@ function renderGroup(list) {
 
   const connected = list.filter((s) => s.status === 'connected');
   const native = state.nativeMultiroom || {};
-  let sub = `${connected.length} из ${list.length} в сети`;
-  if (native.state === 'starting') sub += ' · мультирум запускается…';
-  else if (native.state === 'stopping') sub += ' · мультирум останавливается…';
-  else if (native.state === 'active') sub += ` · нативный мультирум: ${native.memberIds?.length || 0}`;
-  else if (native.message) sub += ` · ${native.message}`;
-  els.groupSub.textContent = sub;
+  els.groupSub.textContent = groupSubText(list);
+
+  // Роспуск группы делает прошивка, поэтому обратный отсчёт обновляем сами.
+  if (state.stopTicker) {
+    clearInterval(state.stopTicker);
+    state.stopTicker = null;
+  }
+  if (native.state === 'stopping') {
+    state.stopTicker = setInterval(() => {
+      els.groupSub.textContent = groupSubText(state.speakers);
+    }, 1000);
+  }
 
   if (Date.now() > state.groupDragUntil) {
     const withVolume = connected.filter((s) => typeof s.volume === 'number');
@@ -709,12 +731,18 @@ async function stopNativeMultiroom() {
   if (state.nativeBusy) return;
   state.nativeBusy = true;
   render();
-  toast('Распускаю группу — колонки выйдут из мультирума за ~10 секунд');
   try {
     const data = await api('/api/multiroom/native/stop', { method: 'POST' });
     if (data.state) applySnapshot(data.state);
     const message = data.native?.message;
-    toast(message || 'Нативный мультирум выключен', message ? 'error' : 'success');
+    const stopping = data.native?.state === 'stopping';
+    toast(
+      message ||
+        (stopping
+          ? 'Звук остановлен, колонки выходят из группы сами — ~12 с'
+          : 'Нативный мультирум выключен'),
+      message ? 'error' : 'success',
+    );
   } catch (err) {
     toast(err.message, 'error');
   } finally {
