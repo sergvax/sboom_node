@@ -3,20 +3,55 @@
 Все заметные изменения проекта. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
-## [Unreleased]
+## [1.2.0] — 2026-11-12
 
 ### Добавлено
 
-- Панель диагностики мультирума в интерфейсе: роли `MASTER`/`SLAVE`, RTT,
-  свежесть данных, смещение часов, версия UDP-протокола и рекомендация
-  мастера. Замеры `position.tsMs` показывают реальный рассинхрон группы.
-- `GET /api/diagnostics`, `POST /api/diagnostics/clock`,
-  `POST /api/diagnostics/sync` — только чтение состояния, звук не запускают.
+- **Нативный SberCast-мультирум** через `MediaCommand START_MULTIROOM`
+  (op=16, cmd=8). Группу собирает прошивка локально, без облака и общего
+  Сбер ID: мастер становится источником звука и опорой времени, ведомые
+  переходят в `SLAVE` примерно за секунду. В интерфейсе — запуск/остановка,
+  чипы «нативный мастер» / «нативный мультирум» и групповая кнопка.
+- API нативного мультирума: `POST /api/multiroom/native/start|stop`,
+  `SpeakerClient.startMultiroom()`, `SpeakerManager.startNativeMultiroom()` /
+  `stopNativeMultiroom()`.
+- **Панель диагностики мультирума**: роли `MASTER`/`SLAVE`, RTT, свежесть
+  данных, смещение часов, версия UDP-протокола и рекомендация мастера.
+- Read-only эндпоинты `GET /api/diagnostics`,
+  `POST /api/diagnostics/clock`, `POST /api/diagnostics/sync`. Замер
+  синхронности нормализует `position.tsMs` через `timestamp` ответа, поэтому
+  расхождение часов колонок не искажает результат.
+- `lib/diagnostics.js`: медиана, анализ рассинхрона по общим секундам трека
+  и выбор лучшего мастера.
 - `SpeakerClient.getMetadataBundle()`, `parseMetaInfo()`: разбор
-  `multi_room_service_info_json`, `position.tsMs`, `udp_protocol_version`.
+  `udp_protocol_version`, `multi_room_service_info_json`,
+  `device_group_info_json` и `media_player_state_json` с `position.tsMs`.
 - `parseState()` отдаёт `timesync` и список SberCast-соседей `sbercast`.
-- `lib/diagnostics.js`: медиана, анализ рассинхрона и выбор лучшего мастера.
-- Мок-колонка отдаёт диагностическую `GetMetaData` и `timesync`.
+- Клиентская поддержка PIN-сопряжения с экраном (`pairWithPin`, op=4–6) и
+  статусов `INPUT_PIN_CODE` / `CONFIRM_PIN_CONNECT`.
+- Директива `SHOW_YOUTUBE` (type=1) с `smartAppInfo`; экспериментальный
+  `sendStarCommand()` (type=3) — по таймауту возвращает `null`.
+- Разбор push-метаданных `request_data[18]`: смена трека, позиция и громкость
+  без поллинга.
+- Дополнительные опкоды протокола: ping, отмена/подтверждение PIN, gamepad,
+  smart-app state, voice transport и IRD.
+- Мок-колонка отдаёт диагностическую `GetMetaData`, `timesync` и `sbercast`.
+
+### Изменено
+
+- Основная кнопка мультирума запускает **только нативный режим**. Программная
+  deeplink-синхронизация оставлена в API (`/api/multiroom/start|stop|leave`)
+  как совместимый фолбэк и больше не используется интерфейсом.
+- Документация: разделы о нативном мультируме, диагностике, PIN, директивах
+  и ограничениях прошивки.
+- Версия проекта поднята до 1.2.0.
+
+### Исправлено
+
+- `StarCommand` (type=3) больше не считается рабочим каналом управления:
+  прошивка с PIN-токеном молча игнорирует его, включая allowlist-команды.
+  `sendStarCommand()` не бросает исключение по таймауту.
+- Обновлены тесты и мок-колонка под нативный мультирум и диагностику.
 
 ## [1.1.1] — 2026-11-07
 
