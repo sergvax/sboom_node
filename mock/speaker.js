@@ -401,6 +401,18 @@ export async function startMockSpeaker(opts = {}) {
         return;
       }
       if ('16' in req) {
+        // STOP_MULTIROOM (oneof command = 3, Empty): роспуск группы сразу,
+        // не дожидаясь таймаута после паузы.
+        if (req[16] && typeof req[16] === 'object' && '3' in req[16]) {
+          clearTimeout(multiroomOffTimer);
+          multiroom.mode = 'NONE';
+          st.playing = false;
+          onMultiroomStop?.(multiroom);
+          reply(ws, msgId, field(16, 2, Buffer.alloc(0)));
+          pushState(ws);
+          pushMeta(ws);
+          return;
+        }
         const action = Number(req[16]?.[1]);
         if (action === 8) {
           // START_MULTIROOM: без активного источника прошивка отказывает.

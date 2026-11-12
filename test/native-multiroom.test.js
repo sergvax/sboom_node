@@ -45,8 +45,7 @@ test('startMultiroom: без источника PRS_NOT_SUPPORTED, с музык
   }
 });
 
-test('SpeakerManager: нативный мультирум MASTER/SLAVE, стоп по паузе', async () => {
-  let slave = null;
+test('SpeakerManager: нативный мультирум MASTER/SLAVE, стоп по паузе', async () => {  let slave = null;
   const mockA = await startMockSpeaker({
     onMultiroomStart: () => {
       if (slave) slave.multiroom.mode = 'SLAVE';
@@ -117,6 +116,79 @@ test('SpeakerManager: нативный мультирум MASTER/SLAVE, стоп
     assert.equal(
       manager.snapshot().speakers.find((s) => s.id === b.id).multiroom.mode,
       'NONE',
+    );
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await mockA.close();
+    await mockB.close();
+  }
+});
+
+test('SpeakerManager: стоп распускает живую группу и блокирует запуск трека', async () => {
+  const mockA = await startMockSpeaker({
+    onMultiroomStart: () => {
+      mockB.multiroom.mode = 'SLAVE';
+    },
+  });
+  const mockB = await startMockSpeaker();
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-native-mr-stop-'));
+  const manager = new SpeakerManager({ store: new Store(path.join(dir, 'speakers.json')) });
+
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'Мастер', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'Ведомая', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 && list.every((s) => s.status === 'connected');
+      },
+      { label: 'обе колонки подключились' },
+    );
+
+    await manager.command(a.id, 'play');
+    await waitFor(
+      () => manager.snapshot().speakers.find((s) => s.id === a.id)?.player?.playing,
+      { label: 'мастер заиграл' },
+    );
+    const started = await manager.startNativeMultiroom(a.id);
+    assert.equal(started.state, 'active');
+    assert.equal(mockB.multiroom.mode, 'SLAVE');
+
+    // Сервер потерял состояние (например, перезапустился), но колонки в группе:
+    // снимок должен снова показать активный мультирум, а не «idle».
+    manager._resetNative();
+    const adopted = manager.snapshot().nativeMultiroom;
+    assert.equal(adopted.state, 'active');
+    assert.deepEqual(new Set(adopted.memberIds), new Set([a.id, b.id]));
+
+    // Теперь состояние действительно idle: стоп обязан найти группу по живым
+    // ролям колонок, а не по сохранённому masterId.
+    manager._resetNative();
+    const stopping = manager.stopNativeMultiroom();
+    const stopped = await stopping;
+    assert.equal(stopped.state, 'idle');
+    assert.equal(mockA.multiroom.mode, 'NONE');
+    assert.equal(mockB.multiroom.mode, 'NONE');
+    assert.equal(
+      manager.snapshot().speakers.find((s) => s.id === b.id).multiroom.mode,
+      'NONE',
+    );
+
+    // Пока группа распускается, запуск трека отменил бы роспуск.
+    manager.nativeMr = { ...manager.nativeMr, state: 'stopping' };
+    await assert.rejects(
+      () => manager.command(a.id, 'play'),
+      /выходит из группы/,
+      'запуск трека во время остановки должен быть заблокирован',
+    );
+    await assert.rejects(
+      () => manager.playContent(a.id, { kind: 'track', id: '1' }),
+      /выходит из группы/,
+      'запуск контента во время остановки должен быть заблокирован',
     );
   } finally {
     await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));

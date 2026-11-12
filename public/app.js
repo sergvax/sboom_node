@@ -712,6 +712,7 @@ async function stopNativeMultiroom() {
   if (state.nativeBusy) return;
   state.nativeBusy = true;
   render();
+  toast('Распускаю группу — колонки выйдут из мультирума за ~10 секунд');
   try {
     const data = await api('/api/multiroom/native/stop', { method: 'POST' });
     if (data.state) applySnapshot(data.state);
