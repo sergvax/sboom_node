@@ -18,22 +18,29 @@ import { WebSocketServer } from 'ws';
 
 import { field, decode } from '../lib/tlv.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * Самоподписанный сертификат мок-колонки генерируется один раз на процесс в
+ * изолированном temp-каталоге. `node --test` запускает тестовые файлы
+ * параллельно, и общий файл в `mock/certs` давал гонку: один процесс читал
+ * `key.pem`, другой в это момент переписывал `cert.pem`, и https-сервер падал
+ * с «key values mismatch».
+ */
+let mockCerts = null;
 
 function ensureCerts() {
-  const dir = path.join(__dirname, 'certs');
+  if (mockCerts) return mockCerts;
+  const dir = path.join(os.tmpdir(), 'sboom-mock-certs', randomUUID());
   const keyPath = path.join(dir, 'key.pem');
   const certPath = path.join(dir, 'cert.pem');
-  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
-    fs.mkdirSync(dir, { recursive: true });
-    execFileSync('openssl', [
-      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650',
-      '-keyout', keyPath, '-out', certPath,
-      '-subj', '/CN=sberboom-mock',
-      '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
-    ], { stdio: 'ignore' });
-  }
-  return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
+  fs.mkdirSync(dir, { recursive: true });
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650',
+    '-keyout', keyPath, '-out', certPath,
+    '-subj', '/CN=sberboom-mock',
+    '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
+  ], { stdio: 'ignore' });
+  mockCerts = { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
+  return mockCerts;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
