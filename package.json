@@ -1,6 +1,6 @@
 {
   "name": "sboom-standalone",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "private": true,
   "type": "module",
   "description": "Standalone LAN-контроллер колонок SberBoom с веб-интерфейсом",

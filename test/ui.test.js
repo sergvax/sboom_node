@@ -194,8 +194,8 @@ test('UI: мультирум — только нативный режим, кн�
     assert.equal(cards[0].querySelector('.mr-btn').disabled, false);
 
     assert.equal(cards[0].querySelector('.chip.multi').hidden, false);
-    assert.equal(cards[0].querySelector('.chip.multi').textContent, 'нативный мастер');
-    assert.equal(cards[1].querySelector('.chip.multi').textContent, 'нативный мультирум');
+    assert.equal(cards[0].querySelector('.chip.multi').textContent, 'мультирум');
+    assert.equal(cards[1].querySelector('.chip.multi').textContent, 'мультирум');
     assert.equal(cards[2].querySelector('.chip.multi').hidden, true);
 
     assert.match(doc.querySelector('#groupSub').textContent, /нативный мультирум: 2/);

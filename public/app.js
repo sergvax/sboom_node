@@ -361,10 +361,12 @@ function updateCard(c, sp) {
 
   if (inGroup) {
     c.multiChip.hidden = false;
-    c.multiChip.textContent = isSource ? 'нативный мастер' : 'нативный мультирум';
+    // Единый короткий чип: одинаковая ширина на всех колонках группы, чтобы
+    // карточки не «плыли» по высоте. Роль остаётся в tooltip при наведении.
+    c.multiChip.textContent = 'мультирум';
     c.multiChip.title = isSource
-      ? 'Эта колонка — мастер нативной SberCast-группы'
-      : 'Колонка играет в нативной SberCast-группе';
+      ? 'Мультирум: эта колонка — мастер нативной SberCast-группы'
+      : 'Мультирум: колонка играет в нативной SberCast-группе';
   } else {
     c.multiChip.hidden = true;
     c.multiChip.textContent = '';

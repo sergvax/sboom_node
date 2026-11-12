@@ -410,7 +410,7 @@ input[type="range"]::-moz-range-thumb {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
   gap: clamp(14px, 2vw, 22px);
-  align-items: start;
+  align-items: stretch;
 }
 
 .card {
