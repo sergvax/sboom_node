@@ -318,11 +318,55 @@ test('SpeakerManager.measureSync: без двух играющих колоно�
       () => manager.snapshot().speakers[0]?.status === 'connected',
       { label: 'mock-колонка подключилась' },
     );
-    const result = await manager.measureSync({ durationMs: 2000, intervalMs: 100 });
+    const result = await manager.measureSync({ durationMs: 4000, intervalMs: 100 });
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'need-two-playing');
   } finally {
     await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
     await mock.close();
+  }
+});
+
+test('SpeakerManager.measureSync: ловит переходы секунд у двух играющих колонок', async () => {
+  const mockA = await startMockSpeaker();
+  const mockB = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-diag-sync2-'));
+  const manager = new SpeakerManager({ store: new Store(path.join(dir, 'speakers.json')) });
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'A', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'B', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 && list.every((s) => s.status === 'connected');
+      },
+      { label: 'обе mock-колонки подключились' },
+    );
+    for (const r of manager.runtimes.values()) await r.client.play();
+    await sleep(200);
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.diagProbe()));
+
+    const result = await manager.measureSync({
+      durationMs: 4000,
+      intervalMs: 100,
+      masterId: a.id,
+    });
+    assert.equal(result.source, 'get_state');
+    assert.equal(result.resolutionMs, 100);
+    assert.equal(result.ok, true, result.reason);
+    assert.equal(result.masterId, a.id);
+    assert.ok(result.offsets.length >= 1);
+    for (const row of result.devices) {
+      assert.ok(row.samples >= 2, `у ${row.name} должно быть >= 2 переходов`);
+    }
+    const slave = result.offsets.find((o) => o.id === b.id);
+    assert.ok(slave, 'ведомая колонка должна попасть в offsets');
+    assert.ok(Number.isFinite(slave.offsetMs));
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await Promise.allSettled([mockA.close(), mockB.close()]);
   }
 });

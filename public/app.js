@@ -1796,17 +1796,17 @@ async function measureDiagSync() {
     return;
   }
   setDiagBusy(true);
-  setDiagStatus('Собираю position.tsMs с колонок ~6 секунд…');
+  setDiagStatus('Собираю живую позицию с колонок ~10 секунд…');
   try {
     const data = await api('/api/diagnostics/sync', {
       method: 'POST',
-      body: { durationMs: 6000, intervalMs: 200 },
+      body: { durationMs: 10000, intervalMs: 100 },
     });
     if (!data.ok) {
       const reasons = {
         'need-two-playing': 'Недостаточно играющих колонок.',
         'not-enough-common-positions': 'Колонки не успели отсчитать общие секунды трека.',
-        'no-position-data': 'Нет свежих position.tsMs: возможно, играет endless-радио или трек на паузе.',
+        'no-position-data': 'Нет живой позиции трека: включите обычный трек (не endless-радио) и убедитесь, что он играет.',
         'not-enough-devices': 'Подключено меньше двух колонок.',
       };
       renderDiagResult(
@@ -1829,6 +1829,11 @@ async function measureDiagSync() {
       );
     }
     lines.push(`Вердикт: ${data.label} · худшее отклонение ${fmtMs(data.worstMs)}`);
+    if (Number.isFinite(data.resolutionMs)) {
+      lines.push(
+        `Разрешение замера ~±${data.resolutionMs} мс: меньшие значения — в пределах шума опроса.`,
+      );
+    }
     lines.push('Отрицательное значение — колонка отсчитала секунду раньше мастера, положительное — позже.');
     renderDiagResult('Синхронность нативной группы', lines);
     setDiagStatus('');
