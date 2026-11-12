@@ -663,12 +663,12 @@ async function addSpeaker({ name, host, port }) {
   await api('/api/speakers', { method: 'POST', body: { name, host, port } });
 }
 
-/* ── мультирум ───────────────────────────────────────── */
+/* ── мультирум (нативный SberCast) ───────────────────── */
 
 /**
- * Карточка всегда управляет НАТИВНЫМ мультирумом. Программная
- * синхронизация через deeplink оставлена только в API (`/api/multiroom/*`),
- * в интерфейсе её нет — она даёт слышимый рассинхрон.
+ * Мультирум в проекте один — нативный SberCast: группу строит прошивка,
+ * синхронизацию звука выполняет она же. Программная deeplink-синхронизация
+ * удалена: она давала слышимый рассинхрон.
  */
 async function onMultiroom(sp) {
   const native = state.nativeMultiroom || {};
@@ -682,7 +682,7 @@ async function onMultiroom(sp) {
   return startNativeMultiroom(sp);
 }
 
-/* ── нативный мультирум ─────────────────────────────── */
+/* ── запуск и остановка группы ───────────────────────── */
 
 async function startNativeMultiroom(sp) {
   const nm = state.nativeMultiroom || {};

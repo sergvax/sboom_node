@@ -196,3 +196,47 @@ test('SpeakerManager: стоп распускает живую группу и �
     await mockB.close();
   }
 });
+
+test('SpeakerManager: в нативной группе контент запускают на мастере, а не на ведомой', async () => {
+  const mockA = await startMockSpeaker({ onMultiroomStart: () => { mockB.multiroom.mode = 'SLAVE'; } });
+  const mockB = await startMockSpeaker();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-native-mr-play-'));
+  const manager = new SpeakerManager({ store: new Store(path.join(dir, 'speakers.json')) });
+
+  try {
+    await manager.init();
+    const a = await manager.add({ name: 'Мастер', host: '127.0.0.1', port: mockA.port });
+    const b = await manager.add({ name: 'Ведомая', host: '127.0.0.1', port: mockB.port });
+    await manager.pair(a.id);
+    await manager.pair(b.id);
+    await waitFor(
+      () => {
+        const list = manager.snapshot().speakers;
+        return list.length === 2 && list.every((s) => s.status === 'connected') ? list : null;
+      },
+      { label: 'обе колонки подключились' },
+    );
+
+    await manager.command(a.id, 'play');
+    await waitFor(
+      () => manager.snapshot().speakers.find((s) => s.id === a.id)?.player?.playing,
+      { label: 'мастер заиграл' },
+    );
+    await manager.startNativeMultiroom(a.id);
+
+    await assert.rejects(
+      () => manager.playContent(b.id, { kind: 'track', id: '1001' }),
+      /ведомая/,
+      'запуск контента на ведомой должен быть заблокирован',
+    );
+    assert.equal(mockB.state.playing, false, 'deeplink не должен уйти на ведомую');
+
+    const result = await manager.playContent(a.id, { kind: 'track', id: '1001' });
+    assert.equal(result.ok, true);
+    assert.equal(mockA.state.playing, true);
+  } finally {
+    await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
+    await Promise.allSettled([mockA.close(), mockB.close()]);
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

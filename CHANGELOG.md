@@ -3,6 +3,34 @@
 Все заметные изменения проекта. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [1.3.0] — 2026-11-12
+
+### Удалено
+
+- **Программный (deeplink) мультирум удалён из проекта полностью.** Единственный
+  мультирум — нативный SberCast: группу строит прошивка по `START_MULTIROOM`
+  (`op=16`, cmd=8), синхронизацию звука выполняет сама колонка.
+- `lib/multiroom.js` целиком (`MultiroomController`: фаза по переходам секунд,
+  EMA-лаг `seek`, монитор выравнивания, mute при входе в группу, перехват
+  `next` по `msgId`) вместе с тестами `test/multiroom.test.js` и
+  `test/multiroom-latency.test.js` и e2e-тестами программного мультирума.
+- Эндпоинты `POST /api/multiroom/start`, `POST /api/multiroom/stop`,
+  `POST /api/multiroom/leave`. В снимке состояния больше нет поля `multiroom` —
+  остались `nativeMultiroom` и роли каждой колонки (`multiroom.mode`).
+- Перенаправление команд внутри группы (`MULTIROOM_PROPAGATE`): `command()` и
+  `groupCommand()` больше не перехватывают play/pause/next/prev/seek и не
+  отправляют их источнику — транспорт ведёт прошивка.
+- `SpeakerManager.startMultiroom` / `stopMultiroom` / `leaveMultiroom`, guard
+  «сначала выключите программный мультирум» и `forget()` при удалении колонки.
+
+### Изменено
+
+- `playContent` запускает контент на одной колонке. Если она ведомая в нативной
+  группе, запуск отклоняется с понятным сообщением: контент нужно запускать на
+  мастере, группа подхватит тот же deeplink.
+- Добавлен тест: в нативной группе запуск контента на мастере проходит, на
+  ведомой — блокируется.
+
 ## [1.2.3] — 2026-11-12
 
 ### Изменено

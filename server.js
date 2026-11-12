@@ -170,29 +170,11 @@ app.post('/api/group/command', wrap(async (req, res) => {
 }));
 
 // ───────────────────────────── мультирум ─────────────────────────────
-// Программная deeplink-синхронизация: оставлена для совместимости и как
-// фолбэк. UI использует только нативные /api/multiroom/native/* — они
-// синхронизируются прошивкой и не дают слышимого рассинхрона.
+// Мультирум в проекте один — нативный SberCast (MediaCommand START_MULTIROOM):
+// группу собирает прошивка, синхронизацию звука выполняет она же.
+// Программная deeplink-синхронизация удалена: она давала слышимый рассинхрон
+// и «замирание» ведомой.
 
-app.post('/api/multiroom/start', wrap(async (req, res) => {
-  const { sourceId } = req.body || {};
-  const multiroom = await manager.startMultiroom(sourceId);
-  res.json({ multiroom, state: manager.snapshot() });
-}));
-
-app.post('/api/multiroom/stop', wrap(async (_req, res) => {
-  const multiroom = await manager.stopMultiroom();
-  res.json({ multiroom, state: manager.snapshot() });
-}));
-
-app.post('/api/multiroom/leave', wrap(async (req, res) => {
-  const { id } = req.body || {};
-  if (!id) throw new Error('Не указана колонка');
-  const multiroom = await manager.leaveMultiroom(id);
-  res.json({ multiroom, state: manager.snapshot() });
-}));
-
-// Нативный SberCast-мультирум (MediaCommand START_MULTIROOM).
 app.post('/api/multiroom/native/start', wrap(async (req, res) => {
   const { masterId } = req.body || {};
   const native = await manager.startNativeMultiroom(masterId);
