@@ -19,6 +19,7 @@ const ICONS = {
   cast: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="12" rx="2.5"/><path d="M7 20h10"/><path d="M8.5 12.6a3.7 3.7 0 0 1 3.7-3.7"/><path d="M8.5 9a6.7 6.7 0 0 1 6.7 6.7"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.2"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>',
+  pulse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.2-5.5L13 17l2.3-5H21"/></svg>',
   queue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="7" x2="16" y2="7"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="17" x2="12" y2="17"/><path d="M19 13v7"/><path d="m16.5 17.5 2.5 2.5 2.5-2.5"/></svg>',
   playSmall: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v13.72c0 .84.92 1.35 1.63.9l10.6-6.86a1.08 1.08 0 0 0 0-1.8L9.63 4.24A1.08 1.08 0 0 0 8 5.14Z"/></svg>',
   speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="2.2" width="14" height="19.6" rx="3.2"/><circle cx="12" cy="14.3" r="3.1"/><circle cx="12" cy="7.3" r="1.1" fill="currentColor" stroke="none"/></svg>',
@@ -61,6 +62,16 @@ const els = {
   queueList: $('#queueList'),
   queueRefresh: $('#queueRefresh'),
   closeQueue: $('#closeQueue'),
+  diagDialog: $('#diagDialog'),
+  diagSub: $('#diagSub'),
+  diagStatus: $('#diagStatus'),
+  diagReco: $('#diagReco'),
+  diagTable: $('#diagTable'),
+  diagResult: $('#diagResult'),
+  diagRefresh: $('#diagRefresh'),
+  diagClock: $('#diagClock'),
+  diagSync: $('#diagSync'),
+  closeDiag: $('#closeDiag'),
   btDialog: $('#btDialog'),
   btTitle: $('#btTitle'),
   btTarget: $('#btTarget'),
@@ -89,6 +100,8 @@ const state = {
   btSpeakerId: null,
   btBusy: false,
   bt: null,
+  diagData: null,
+  diagBusy: false,
 };
 
 const cards = new Map();
@@ -720,6 +733,11 @@ function bindGroup() {
     if (!target) return;
     const action = target.dataset.action;
     const connected = state.speakers.filter((s) => s.status === 'connected');
+
+    if (action === 'g-diagnostics') {
+      openDiagnostics();
+      return;
+    }
 
     if (action === 'g-multiroom') {
       const native = state.nativeMultiroom || {};
@@ -1604,6 +1622,238 @@ function bindBluetooth() {
   });
 }
 
+/* ── diagnostics ─────────────────────────────────────── */
+
+const DIAG_MODE_LABELS = { MASTER: 'мастер', SLAVE: 'ведомая', NONE: 'вне группы' };
+
+function diagMode(mode) {
+  if (!mode) return '—';
+  return DIAG_MODE_LABELS[mode] || mode;
+}
+
+function fmtMs(value) {
+  return Number.isFinite(value) ? `${Math.round(value)} мс` : '—';
+}
+
+function fmtAge(value) {
+  if (!Number.isFinite(value)) return '—';
+  return value < 1000 ? `${Math.round(value)} мс` : `${(value / 1000).toFixed(1)} с`;
+}
+
+function setDiagStatus(text, kind = '') {
+  els.diagStatus.hidden = !text;
+  els.diagStatus.className = `queue-status diag-status ${kind}`;
+  els.diagStatus.textContent = text || '';
+}
+
+function setDiagBusy(busy) {
+  state.diagBusy = busy;
+  els.diagRefresh.disabled = busy;
+  els.diagClock.disabled = busy;
+  els.diagSync.disabled = busy;
+}
+
+function diagCell(row, text, className = '') {
+  const cell = document.createElement('td');
+  if (className) cell.className = className;
+  cell.textContent = text;
+  row.append(cell);
+  return cell;
+}
+
+function renderDiagnostics() {
+  const data = state.diagData;
+  if (!data) return;
+  const rows = data.speakers || [];
+  const group = data.group || {};
+  const groupText =
+    group.mode === 'native'
+      ? `нативная группа: ${(group.members || []).join(', ') || '—'}`
+      : 'нативная группа не запущена';
+  els.diagSub.textContent = `Роли, задержка сети и рассинхрон · ${groupText}`;
+
+  const reco = data.recommendedMaster;
+  els.diagReco.hidden = false;
+  els.diagReco.replaceChildren();
+  if (reco) {
+    const title = document.createElement('b');
+    title.textContent = `Лучший мастер: ${reco.name}`;
+    const detail = document.createElement('span');
+    detail.textContent = ` — ${reco.reason}`;
+    els.diagReco.append(title, detail);
+  } else {
+    els.diagReco.textContent =
+      'Нет играющей колонки: включите трек Звука или радио, чтобы выбрать мастера.';
+  }
+
+  els.diagTable.replaceChildren();
+  if (!rows.length) return;
+
+  const table = document.createElement('table');
+  table.className = 'diag-grid';
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  for (const label of ['Колонка', 'Роль', 'Играет', 'Позиция', 'RTT', 'Данные', 'Часы', 'UDP']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  table.append(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const sp of rows) {
+    const tr = document.createElement('tr');
+    if (sp.mode === 'MASTER') tr.className = 'master';
+    diagCell(tr, sp.name, 'diag-name');
+    diagCell(tr, diagMode(sp.mode), sp.mode === 'MASTER' ? 'diag-mode master' : 'diag-mode');
+    diagCell(tr, sp.playing ? 'да' : 'нет', sp.playing ? 'diag-play on' : 'diag-play');
+    diagCell(
+      tr,
+      Number.isFinite(sp.position) ? `${Math.round(sp.position)} с` : '—',
+      'diag-num',
+    );
+    diagCell(tr, fmtMs(sp.rttMs), 'diag-num');
+    diagCell(tr, fmtAge(sp.stateAgeMs), 'diag-num');
+    diagCell(tr, fmtMs(sp.clockOffsetMs), 'diag-num');
+    diagCell(tr, sp.udpProtocolVersion === null ? '—' : `v${sp.udpProtocolVersion}`, 'diag-num');
+    if (sp.mrGroup?.length) {
+      tr.title = `Группа: ${sp.mrGroup.join(', ')}`;
+    }
+    tbody.append(tr);
+  }
+  table.append(tbody);
+  els.diagTable.append(table);
+}
+
+async function refreshDiagnostics() {
+  if (state.diagBusy) return;
+  setDiagBusy(true);
+  setDiagStatus('Опрашиваю колонки…');
+  try {
+    state.diagData = await api('/api/diagnostics?fresh=1');
+    setDiagStatus('');
+    renderDiagnostics();
+  } catch (err) {
+    setDiagStatus(err.message, 'error');
+  } finally {
+    setDiagBusy(false);
+  }
+}
+
+function renderDiagResult(title, lines) {
+  els.diagResult.hidden = false;
+  els.diagResult.replaceChildren();
+  const heading = document.createElement('b');
+  heading.textContent = title;
+  els.diagResult.append(heading);
+  for (const line of lines) {
+    const row = document.createElement('div');
+    row.textContent = line;
+    els.diagResult.append(row);
+  }
+}
+
+async function measureDiagClock() {
+  if (state.diagBusy) return;
+  setDiagBusy(true);
+  setDiagStatus('Измеряю часы колонок (несколько запросов на каждую)…');
+  try {
+    const data = await api('/api/diagnostics/clock', {
+      method: 'POST',
+      body: { samples: 5, intervalMs: 60 },
+    });
+    const lines = (data.devices || []).map((d) => {
+      if (!Number.isFinite(d.offsetMs)) return `${d.name}: нет данных`;
+      const rel = Number.isFinite(d.relativeMs)
+        ? `, относительно медианы ${d.relativeMs > 0 ? '+' : ''}${d.relativeMs} мс`
+        : '';
+      return `${d.name}: ${d.offsetMs > 0 ? '+' : ''}${d.offsetMs} мс${rel}, RTT ${fmtMs(d.rttMs)} (${d.samples} зам.)`;
+    });
+    if (Number.isFinite(data.spreadMs)) {
+      lines.push(`Разброс часов между колонками: ${data.spreadMs} мс`);
+    }
+    if (data.devices?.length < 2) {
+      lines.push('Для сравнения нужно минимум две подключённые колонки.');
+    }
+    renderDiagResult('Часы колонок', lines);
+    setDiagStatus('');
+  } catch (err) {
+    setDiagStatus(err.message, 'error');
+  } finally {
+    setDiagBusy(false);
+  }
+}
+
+async function measureDiagSync() {
+  if (state.diagBusy) return;
+  const playing = state.speakers.filter((s) => s.status === 'connected' && s.player?.playing);
+  if (playing.length < 2) {
+    setDiagStatus(
+      'Для замера нужны минимум две играющие колонки. Включите трек Звука и запустите нативный мультирум.',
+      'error',
+    );
+    return;
+  }
+  setDiagBusy(true);
+  setDiagStatus('Собираю position.tsMs с колонок ~6 секунд…');
+  try {
+    const data = await api('/api/diagnostics/sync', {
+      method: 'POST',
+      body: { durationMs: 6000, intervalMs: 200 },
+    });
+    if (!data.ok) {
+      const reasons = {
+        'need-two-playing': 'Недостаточно играющих колонок.',
+        'not-enough-common-positions': 'Колонки не успели отсчитать общие секунды трека.',
+        'no-position-data': 'Нет свежих position.tsMs: возможно, играет endless-радио или трек на паузе.',
+        'not-enough-devices': 'Подключено меньше двух колонок.',
+      };
+      renderDiagResult(
+        'Синхронность: нет данных',
+        [reasons[data.reason] || data.message || data.reason || 'Неизвестная причина'],
+      );
+      setDiagStatus('');
+      return;
+    }
+    const lines = [];
+    if (data.masterId) {
+      const master = (data.devices || []).find((d) => d.id === data.masterId);
+      if (master) lines.push(`Опора: ${master.name}`);
+    }
+    for (const d of data.devices || []) {
+      if (d.id === data.masterId) continue;
+      const off = Number.isFinite(d.offsetMs) ? d.offsetMs : null;
+      lines.push(
+        `${d.name}: ${off === null ? 'нет общих секунд' : `${off > 0 ? '+' : ''}${off} мс`}, сэмплов ${d.samples || 0}`,
+      );
+    }
+    lines.push(`Вердикт: ${data.label} · худшее отклонение ${fmtMs(data.worstMs)}`);
+    lines.push('Отрицательное значение — колонка отсчитала секунду раньше мастера, положительное — позже.');
+    renderDiagResult('Синхронность нативной группы', lines);
+    setDiagStatus('');
+  } catch (err) {
+    setDiagStatus(err.message, 'error');
+  } finally {
+    setDiagBusy(false);
+  }
+}
+
+function openDiagnostics() {
+  els.diagResult.hidden = true;
+  els.diagResult.replaceChildren();
+  setDiagStatus('');
+  openDialog(els.diagDialog);
+  refreshDiagnostics();
+}
+
+function bindDiagnostics() {
+  els.closeDiag.addEventListener('click', () => closeDialog(els.diagDialog));
+  els.diagRefresh.addEventListener('click', () => refreshDiagnostics());
+  els.diagClock.addEventListener('click', () => measureDiagClock());
+  els.diagSync.addEventListener('click', () => measureDiagSync());
+}
+
 /* ── add dialog ──────────────────────────────────────── */
 
 function bindDialog() {
@@ -1778,6 +2028,7 @@ function init() {
   bindSearch();
   bindQueue();
   bindBluetooth();
+  bindDiagnostics();
   connectEvents();
   poll();
   pollTimer = setInterval(poll, 15000);

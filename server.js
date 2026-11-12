@@ -204,6 +204,24 @@ app.post('/api/multiroom/native/stop', wrap(async (_req, res) => {
   res.json({ native, state: manager.snapshot() });
 }));
 
+// ───────────────────────────── диагностика ─────────────────────────────
+// Только чтение: GET_STATE/GetMetaData, без управления аудио-пайплайном.
+
+app.get('/api/diagnostics', wrap(async (req, res) => {
+  const fresh = req.query.fresh === '1' || req.query.fresh === 'true';
+  res.json(await manager.diagnostics({ fresh }));
+}));
+
+app.post('/api/diagnostics/clock', wrap(async (req, res) => {
+  const { samples, intervalMs } = req.body || {};
+  res.json(await manager.measureClock({ samples, intervalMs }));
+}));
+
+app.post('/api/diagnostics/sync', wrap(async (req, res) => {
+  const { durationMs, intervalMs, masterId } = req.body || {};
+  res.json(await manager.measureSync({ durationMs, intervalMs, masterId }));
+}));
+
 // Server-Sent Events: живые обновления состояния.
 app.get('/api/events', (req, res) => {
   res.set({

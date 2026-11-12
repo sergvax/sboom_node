@@ -137,6 +137,8 @@ export async function startMockSpeaker(opts = {}) {
       volume: { muted: st.muted, percent: st.volume },
       multiroom,
       network: { connection_type: 'WIFI', ip: '127.0.0.1' },
+      timesync: { unixtime: Date.now() / 1000 },
+      sbercast: { enabled: true, devices: [] },
       capabilities_state: { led_display: { brightness: 100, turned_on: true } },
       time: { timezone_id: 'Europe/Moscow' },
       ...(musicInCurrentApp
@@ -145,7 +147,7 @@ export async function startMockSpeaker(opts = {}) {
     });
   };
 
-  const trackJson = () => JSON.stringify({
+  const playerJson = () => JSON.stringify({
     artists: st.artists.map((name, i) => ({ id: String(i + 1), name })),
     duration: st.duration,
     explicit: false,
@@ -153,6 +155,7 @@ export async function startMockSpeaker(opts = {}) {
     mediaSource: 'MUSIC',
     playbackSpeedRate: 1,
     playing: st.playing,
+    playingPending: false,
     position: { tsMs: Date.now(), val: position() },
     provider: 'zvuk',
     releases: [{ id: st.releaseId, name: st.album }],
@@ -164,6 +167,41 @@ export async function startMockSpeaker(opts = {}) {
     playlistTitle: st.playlistTitle,
     playlistType: st.playlistType,
   });
+
+  /**
+   * GetMetaData.Response: поля 1 status, 2 meta_data, 3 timestamp.
+   * В meta_data — device_info, UDP-версия, состав нативной группы и
+   * media_player_state_json с `position.tsMs`.
+   */
+  const metaResponse = () => {
+    const deviceInfo = Buffer.concat([
+      field(1, 2, '1.0.0-mock'),
+      field(2, 2, 'mock-speaker'),
+      field(3, 2, 'Mock Speaker'),
+      field(4, 2, 'SberDevices'),
+      field(5, 2, 'MOCK000000000001'),
+    ]);
+    const mrInfo = JSON.stringify({
+      md: multiroom.mode === 'NONE' ? 'NONE' : 'MR',
+      ...(multiroom.mode === 'MASTER' ? { master: true } : {}),
+      group: [],
+    });
+    const meta = Buffer.concat([
+      field(1, 2, deviceInfo),
+      field(5, 0, 1),
+      field(8, 0, 7),
+      field(9, 2, mrInfo),
+      field(10, 0, 4),
+      field(11, 2, playerJson()),
+      field(14, 2, '{}'),
+    ]);
+    const resp = Buffer.concat([
+      field(1, 0, 1),
+      field(2, 2, meta),
+      field(3, 0, Date.now()),
+    ]);
+    return field(10, 2, resp);
+  };
 
   const btDeviceMsg = ({ mac, name, connected }) =>
     Buffer.concat([
@@ -224,7 +262,7 @@ export async function startMockSpeaker(opts = {}) {
   };
 
   const pushState = (ws) => reply(ws, randomUUID(), field(12, 2, stateJson()));
-  const pushMeta = (ws) => reply(ws, randomUUID(), field(10, 2, trackJson()));
+  const pushMeta = (ws) => reply(ws, randomUUID(), metaResponse());
 
   const clients = new Set();
   let multiroomOffTimer = null;
@@ -302,7 +340,7 @@ export async function startMockSpeaker(opts = {}) {
         return;
       }
       if ('10' in req) {
-        reply(ws, msgId, field(10, 2, trackJson()));
+        reply(ws, msgId, metaResponse());
         return;
       }
       if ('17' in req) {

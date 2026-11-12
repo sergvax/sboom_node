@@ -3,6 +3,21 @@
 Все заметные изменения проекта. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [Unreleased]
+
+### Добавлено
+
+- Панель диагностики мультирума в интерфейсе: роли `MASTER`/`SLAVE`, RTT,
+  свежесть данных, смещение часов, версия UDP-протокола и рекомендация
+  мастера. Замеры `position.tsMs` показывают реальный рассинхрон группы.
+- `GET /api/diagnostics`, `POST /api/diagnostics/clock`,
+  `POST /api/diagnostics/sync` — только чтение состояния, звук не запускают.
+- `SpeakerClient.getMetadataBundle()`, `parseMetaInfo()`: разбор
+  `multi_room_service_info_json`, `position.tsMs`, `udp_protocol_version`.
+- `parseState()` отдаёт `timesync` и список SberCast-соседей `sbercast`.
+- `lib/diagnostics.js`: медиана, анализ рассинхрона и выбор лучшего мастера.
+- Мок-колонка отдаёт диагностическую `GetMetaData` и `timesync`.
+
 ## [1.1.1] — 2026-11-07
 
 ### Исправлено

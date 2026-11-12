@@ -526,6 +526,78 @@ test('UI: Bluetooth-диалог — список, скан, режим сопр
   }
 });
 
+test('UI: диагностика мультирума — таблица, рекомендация мастера и замеры', async () => {
+  const snapshot = {
+    serverTime: Date.now(),
+    speakers: [speaker(10, 'Кухня'), speaker(11, 'Гостиная')],
+  };
+  const diag = {
+    generatedAt: Date.now(),
+    nativeMultiroom: { state: 'active', masterId: 10, memberIds: [10, 11] },
+    group: { mode: 'native', masters: ['Кухня'], slaves: ['Гостиная'], members: ['Кухня', 'Гостиная'] },
+    recommendedMaster: { id: 10, name: 'Кухня', score: 120, reason: 'играет, RTT 8 мс, UDP v7' },
+    speakers: [
+      {
+        id: 10,
+        name: 'Кухня',
+        status: 'connected',
+        mode: 'MASTER',
+        playing: true,
+        position: 42,
+        rttMs: 8,
+        stateAgeMs: 90,
+        clockOffsetMs: 3,
+        udpProtocolVersion: 7,
+        product: 'sberboom',
+        mrGroup: ['Кухня', 'Гостиная'],
+      },
+      {
+        id: 11,
+        name: 'Гостиная',
+        status: 'connected',
+        mode: 'SLAVE',
+        playing: true,
+        position: 42,
+        rttMs: 12,
+        stateAgeMs: 140,
+        clockOffsetMs: -2,
+        udpProtocolVersion: 7,
+        product: 'stargate',
+        mrGroup: ['Кухня', 'Гостиная'],
+      },
+    ],
+  };
+
+  const handler = async (url) => {
+    if (String(url).startsWith('/api/diagnostics?fresh=1')) {
+      return { ok: true, status: 200, json: async () => diag };
+    }
+    return null;
+  };
+  const { dom, window, calls } = await boot(snapshot, handler);
+
+  try {
+    const doc = window.document;
+    doc.querySelector('[data-action="g-diagnostics"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.ok(calls.some((c) => c.url.startsWith('/api/diagnostics?fresh=1')));
+    assert.equal(doc.querySelector('#diagDialog').open, true);
+    assert.match(doc.querySelector('#diagSub').textContent, /нативная группа: Кухня, Гостиная/);
+    assert.match(doc.querySelector('#diagReco').textContent, /Лучший мастер: Кухня/);
+
+    const rows = doc.querySelectorAll('.diag-grid tbody tr');
+    assert.equal(rows.length, 2);
+    assert.match(rows[0].textContent, /Кухня/);
+    assert.match(rows[0].textContent, /мастер/);
+    assert.match(rows[0].textContent, /v7/);
+    assert.match(rows[1].textContent, /ведомая/);
+    assert.ok(rows[0].classList.contains('master'));
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('UI: несопряжённая колонка показывает оверлей, во время pair — сообщение', async () => {
   const snapshot = {
     serverTime: Date.now(),

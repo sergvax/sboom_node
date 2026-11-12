@@ -2069,6 +2069,117 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
+.diag-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.diag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.diag-reco {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid rgba(139, 107, 255, 0.26);
+  background: rgba(139, 107, 255, 0.08);
+}
+
+.diag-reco b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.diag-table {
+  overflow-x: auto;
+}
+
+.diag-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.diag-grid th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted-2);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--stroke-soft);
+  white-space: nowrap;
+}
+
+.diag-grid td {
+  padding: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  white-space: nowrap;
+}
+
+.diag-grid tr.master td {
+  background: rgba(139, 107, 255, 0.1);
+}
+
+.diag-name {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.diag-mode.master {
+  color: #c9b6ff;
+  font-weight: 600;
+}
+
+.diag-play.on {
+  color: #8ff0b5;
+}
+
+.diag-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.diag-result {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke-soft);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.diag-result b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.diag-status.error {
+  color: #ffb4b4;
+  border-color: rgba(255, 107, 107, 0.28);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+@media (max-width: 720px) {
+  .diag-dialog {
+    width: calc(100vw - 16px);
+  }
+
+  .diag-dialog .dialog-inner {
+    max-height: min(90vh, 760px);
+  }
+
+  .diag-actions .btn {
+    flex: 1 1 140px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

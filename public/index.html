@@ -47,6 +47,9 @@
             <div class="group-sub" id="groupSub"></div>
           </div>
           <div class="group-actions">
+            <button class="round-btn" data-action="g-diagnostics" title="Диагностика мультирума">
+              <span data-icon="pulse"></span>
+            </button>
             <button class="round-btn" data-action="g-multiroom" title="Нативный мультирум">
               <span data-icon="cast"></span>
             </button>
@@ -181,6 +184,33 @@
           <div class="queue-status" id="btScanStatus" hidden></div>
           <div class="bt-list" id="btScanList"></div>
         </section>
+      </div>
+    </dialog>
+
+    <dialog class="dialog diag-dialog" id="diagDialog">
+      <div class="dialog-inner">
+        <header class="dialog-head">
+          <div class="queue-heading">
+            <h2>Диагностика мультирума</h2>
+            <div class="queue-context" id="diagSub">
+              Роли, задержка сети и рассинхрон — только чтение состояния
+            </div>
+          </div>
+          <button class="icon-btn" type="button" id="closeDiag" title="Закрыть" aria-label="Закрыть">
+            <span data-icon="x"></span>
+          </button>
+        </header>
+
+        <div class="diag-actions">
+          <button class="btn small ghost" type="button" id="diagRefresh">Обновить</button>
+          <button class="btn small ghost" type="button" id="diagClock">Измерить часы</button>
+          <button class="btn small ghost" type="button" id="diagSync">Измерить синхронность</button>
+        </div>
+
+        <div class="queue-status" id="diagStatus" hidden></div>
+        <div class="diag-reco" id="diagReco" hidden></div>
+        <div class="diag-table" id="diagTable"></div>
+        <div class="diag-result" id="diagResult" hidden></div>
       </div>
     </dialog>
 
