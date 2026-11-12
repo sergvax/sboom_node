@@ -685,11 +685,6 @@ async function onMultiroom(sp) {
 async function startNativeMultiroom(sp) {
   const nm = state.nativeMultiroom || {};
   if (state.nativeBusy || nm.state === 'starting' || nm.state === 'stopping') return;
-  const ok = window.confirm(
-    `Включить нативный мультирум с «${sp.name}»?\n\n` +
-      'Группу строит сама колонка — звук пойдёт на все колонки SberCast в этой сети.',
-  );
-  if (!ok) return;
   state.nativeBusy = true;
   render();
   try {

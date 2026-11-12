@@ -15,7 +15,7 @@ import {
   verdictForOffset,
   verdictLabel,
 } from '../lib/diagnostics.js';
-import { SpeakerManager } from '../lib/manager.js';
+import { SpeakerManager, shareTrackArtwork } from '../lib/manager.js';
 import { Store } from '../lib/store.js';
 import { startMockSpeaker } from '../mock/speaker.js';
 
@@ -30,6 +30,42 @@ async function waitFor(fn, { timeout = 10_000, step = 100, label = 'услови
   }
   throw new Error(`Не дождались: ${label}`);
 }
+
+test('shareTrackArtwork: обложка одного трека достаётся всем карточкам', () => {
+  const speakers = [
+    {
+      name: 'A',
+      track: {
+        trackId: '171293859',
+        title: 'Хорошая сторона',
+        artists: [],
+        album: null,
+        cover: null,
+        duration: null,
+      },
+    },
+    {
+      name: 'B',
+      track: {
+        trackId: '171293859',
+        title: 'Хорошая сторона',
+        artists: ['Мумий Тролль'],
+        album: 'Хорошая сторона',
+        cover: 'https://cdn-image.zvuk.com/pic?type=release&id=1&size=600x600',
+        duration: 314,
+      },
+    },
+    { name: 'C', track: { trackId: '999', title: 'Другой трек', cover: null, artists: [] } },
+  ];
+  shareTrackArtwork(speakers);
+
+  assert.ok(speakers[0].track.cover, 'обложка подтянулась с соседней колонки');
+  assert.match(speakers[0].track.cover, /release/);
+  assert.deepEqual(speakers[0].track.artists, ['Мумий Тролль']);
+  assert.equal(speakers[0].track.album, 'Хорошая сторона');
+  assert.equal(speakers[0].track.duration, 314);
+  assert.equal(speakers[2].track.cover, null, 'чужой трек не трогаем');
+});
 
 function metaResponse(overrides = {}) {
   const playerState = JSON.stringify({

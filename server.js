@@ -204,6 +204,19 @@ app.post('/api/multiroom/native/stop', wrap(async (_req, res) => {
   res.json({ native, state: manager.snapshot() });
 }));
 
+// ВРЕМЕННО: проверка StarCommand.multi_room_message.stop_multiroom на живых
+// колонках. После эксперимента эндпоинт будет убран.
+app.post('/api/multiroom/native/star-stop', wrap(async (req, res) => {
+  const { id, masterCastDeviceId } = req.body || {};
+  const runtime = id
+    ? manager.get(id)
+    : [...manager.runtimes.values()].find((r) => r.multiroom?.mode === 'MASTER') ||
+      [...manager.runtimes.values()].find((r) => r.client?.connected);
+  if (!runtime) throw new Error('Нет подключённой колонки');
+  const reply = await runtime.client.stopMultiroomStar({ masterCastDeviceId });
+  res.json({ ok: true, speaker: runtime.cfg.name, reply });
+}));
+
 // ───────────────────────────── диагностика ─────────────────────────────
 // Только чтение: GET_STATE/GetMetaData, без управления аудио-пайплайном.
 

@@ -153,10 +153,15 @@ test('UI: мультирум — только нативный режим, кн�
       'отдельной кнопки программного/нативного режима больше нет',
     );
 
-    // Клик по карточке запускает именно НАТИВНЫЙ эндпоинт.
-    window.confirm = () => true;
+    // Клик по карточке запускает именно НАТИВНЫЙ эндпоинт, без вопросов.
+    let confirmCalls = 0;
+    window.confirm = () => {
+      confirmCalls += 1;
+      return true;
+    };
     doc.querySelectorAll('.card')[0].querySelector('.mr-btn').click();
     await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(confirmCalls, 0, 'запуск мультирума не спрашивает подтверждения');
     assert.ok(
       calls.some((c) => c.url === '/api/multiroom/native/start'),
       'карточка вызывает native/start',
