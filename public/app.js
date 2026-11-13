@@ -8,6 +8,7 @@ const ICONS = {
   next: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5.5 4.8v14.4a1 1 0 0 0 1.55.83L16 13.1v6.1a1 1 0 0 0 2 0V4.8a1 1 0 0 0-2 0v6.1L7.05 3.97a1 1 0 0 0-1.55.83Z"/></svg>',
   shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+  repeatOne: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><path d="M12.8 8.4 11.5 9.4"/><path d="M12.8 8.4v7.2"/></svg>',
   volume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
   mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>',
   heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>',
@@ -217,6 +218,7 @@ function createCard(sp) {
     tDur: $('.t-dur', node),
     shuffle: $('[data-action="shuffle"]', node),
     repeat: $('[data-action="repeat"]', node),
+    repeatIcon: $('[data-action="repeat"] [data-icon]', node),
     playBtn: $('.play-btn', node),
     playIcon: $('.play-btn [data-icon]', node),
     volumeBtn: $('[data-action="mutetoggle"]', node),
@@ -375,6 +377,10 @@ function updateCard(c, sp) {
 
   c.shuffle.classList.toggle('active', Boolean(t?.shuffle));
   c.repeat.classList.toggle('active', Boolean(t) && (t.repeat || 'off') !== 'off');
+  // Повтор трека отличается от повтора плейлиста цифрой «1» внутри иконки.
+  if (c.repeatIcon) {
+    c.repeatIcon.innerHTML = t?.repeat === 'one' ? ICONS.repeatOne : ICONS.repeat;
+  }
   c.repeat.title =
     t?.repeat === 'one' ? 'Повтор трека' : t?.repeat === 'all' ? 'Повтор плейлиста' : 'Повтор выключен';
 
@@ -1166,13 +1172,21 @@ async function playContent(payload, label, targetId, button = null, extra = {}) 
     const data = await api(`/api/speakers/${id}/play`, { method: 'POST', body });
     if (data.state) applySnapshot(data.state);
     const title = label || data.content?.title || `ID ${data.content?.id || ''}`;
-    const target = speakerName(id);
+    // В нативной группе deeplink уходит мастеру, даже если нажали на ведомой.
+    const target = data.speaker?.name || speakerName(id);
+    const viaMaster =
+      data.redirectedFrom && data.redirectedFrom !== data.speaker?.name
+        ? ` (мастер; выбрано на «${data.redirectedFrom}»)`
+        : '';
     if (data.failed?.length) {
       toast(`${title}: ${data.failed.join('; ')}`, 'error');
     } else if (data.confirmed) {
-      toast(`«${title}» → ${target}`, 'success');
+      toast(`«${title}» → ${target}${viaMaster}`, 'success');
     } else {
-      toast(`Команда отправлена: ${title} → ${target}. Колонка ещё переключается.`, 'success');
+      toast(
+        `Команда отправлена: ${title} → ${target}${viaMaster}. Колонка ещё переключается.`,
+        'success',
+      );
     }
     return true;
   } catch (err) {

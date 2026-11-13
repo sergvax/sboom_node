@@ -130,6 +130,37 @@ test('UI: три карточки, группа, живые обновления
   }
 });
 
+test('UI: повтор трека отличается от повтора плейлиста цифрой на иконке', async () => {
+  const snapshot = {
+    serverTime: Date.now(),
+    speakers: [
+      speaker(10, 'Кухня', { track: track({ repeat: 'one' }) }),
+      speaker(11, 'Спальня', { track: track({ repeat: 'all' }) }),
+      speaker(12, 'Гостиная', { track: track({ repeat: 'off' }) }),
+    ],
+  };
+  const { dom, window } = await boot(snapshot);
+
+  try {
+    const doc = window.document;
+    const icons = [...doc.querySelectorAll('[data-action="repeat"] [data-icon]')];
+    assert.equal(icons.length, 3);
+    assert.match(icons[0].innerHTML, /12\.8 8\.4v7\.2/, 'у повтора трека есть «1»');
+    assert.doesNotMatch(icons[1].innerHTML, /12\.8 8\.4v7\.2/, 'у плейлиста цифры нет');
+    assert.doesNotMatch(icons[2].innerHTML, /12\.8 8\.4v7\.2/);
+    assert.equal(
+      doc.querySelectorAll('[data-action="repeat"]')[0].title,
+      'Повтор трека',
+    );
+    assert.equal(
+      doc.querySelectorAll('[data-action="repeat"]')[1].title,
+      'Повтор плейлиста',
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('UI: мультирум — только нативный режим, кнопки, чипы и API', async () => {
   const snapshot = {
     serverTime: Date.now(),

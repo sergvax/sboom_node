@@ -59,6 +59,8 @@ export async function startMockSpeaker(opts = {}) {
     multiroomOffDelayMs = 600,
     onMultiroomStart = null,
     onMultiroomStop = null,
+    // Прошивка глушит колонки, когда группа распадается.
+    muteOnMultiroomOff = false,
   } = opts;
   const { key, cert } = ensureCerts();
   const server = https.createServer({ key, cert });
@@ -280,6 +282,7 @@ export async function startMockSpeaker(opts = {}) {
     clearTimeout(multiroomOffTimer);
     multiroomOffTimer = setTimeout(() => {
       multiroom.mode = 'NONE';
+      if (muteOnMultiroomOff) st.muted = true;
       onMultiroomStop?.(multiroom);
       for (const client of clients) pushState(client);
     }, multiroomOffDelayMs);
@@ -413,6 +416,7 @@ export async function startMockSpeaker(opts = {}) {
         if (req[16] && typeof req[16] === 'object' && '3' in req[16]) {
           clearTimeout(multiroomOffTimer);
           multiroom.mode = 'NONE';
+          if (muteOnMultiroomOff) st.muted = true;
           st.playing = false;
           onMultiroomStop?.(multiroom);
           reply(ws, msgId, field(16, 2, Buffer.alloc(0)));

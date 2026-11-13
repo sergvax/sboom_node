@@ -132,11 +132,12 @@ test('SpeakerManager: стоп распускает живую группу и �
   // проверяет, что API отвечает сразу, а роспуск идёт в фоне.
   const mockA = await startMockSpeaker({
     multiroomOffDelayMs: 5000,
+    muteOnMultiroomOff: true,
     onMultiroomStart: () => {
       mockB.multiroom.mode = 'SLAVE';
     },
   });
-  const mockB = await startMockSpeaker({ multiroomOffDelayMs: 5000 });
+  const mockB = await startMockSpeaker({ multiroomOffDelayMs: 5000, muteOnMultiroomOff: true });
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-native-mr-stop-'));
   const manager = new SpeakerManager({ store: new Store(path.join(dir, 'speakers.json')) });
@@ -174,6 +175,12 @@ test('SpeakerManager: стоп распускает живую группу и �
     // Теперь состояние действительно idle: стоп обязан найти группу по живым
     // ролям колонок, а не по сохранённому masterId.
     manager._resetNative();
+
+    // Пользователь выключил звук на ведомой до остановки — этот mute надо
+    // сохранить, а навязанный прошивкой mute после выхода из группы снять.
+    await manager.command(b.id, 'mute');
+    await waitFor(() => mockB.state.muted === true, { label: 'mute на ведомой' });
+
     const stopStartedAt = Date.now();
     const stopped = await manager.stopNativeMultiroom();
     // Ответ приходит сразу: прошивка распускает группу сама, мы ждём в фоне.
@@ -200,6 +207,11 @@ test('SpeakerManager: стоп распускает живую группу и �
     assert.equal(manager.snapshot().nativeMultiroom.state, 'idle');
     assert.equal(mockA.multiroom.mode, 'NONE');
     assert.equal(mockB.multiroom.mode, 'NONE');
+    // Прошивка глушит колонки при выходе из группы; звук возвращаем, но
+    // только тем, кого пользователь не выключал сам.
+    await waitFor(() => mockA.state.muted === false, { label: 'mute на мастере снят' });
+    assert.equal(mockA.state.muted, false, 'mute после выхода из группы снят');
+    assert.equal(mockB.state.muted, true, 'осознанный mute пользователя сохранён');
     assert.equal(
       manager.snapshot().speakers.find((s) => s.id === b.id).multiroom.mode,
       'NONE',
@@ -213,7 +225,7 @@ test('SpeakerManager: стоп распускает живую группу и �
   }
 });
 
-test('SpeakerManager: в нативной группе контент запускают на мастере, а не на ведомой', async () => {
+test('SpeakerManager: контент с карточки ведомой запускается на мастере', async () => {
   const mockA = await startMockSpeaker({ onMultiroomStart: () => { mockB.multiroom.mode = 'SLAVE'; } });
   const mockB = await startMockSpeaker();
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sboom-native-mr-play-'));
@@ -240,16 +252,15 @@ test('SpeakerManager: в нативной группе контент запус
     );
     await manager.startNativeMultiroom(a.id);
 
-    await assert.rejects(
-      () => manager.playContent(b.id, { kind: 'track', id: '1001' }),
-      /ведомая/,
-      'запуск контента на ведомой должен быть заблокирован',
-    );
-    assert.equal(mockB.state.playing, false, 'deeplink не должен уйти на ведомую');
-
-    const result = await manager.playContent(a.id, { kind: 'track', id: '1001' });
+    // Пользователь нажал «запустить» на карточке ведомой: deeplink уходит
+    // мастеру, ведомая остаётся в группе и просто подхватывает трек.
+    const result = await manager.playContent(b.id, { kind: 'track', id: '1001' });
     assert.equal(result.ok, true);
-    assert.equal(mockA.state.playing, true);
+    assert.equal(result.speaker.id, a.id, 'запуск подтверждён на мастере');
+    assert.equal(result.redirectedFrom, 'Ведомая');
+    assert.equal(mockA.state.playing, true, 'deeplink ушёл мастеру');
+    assert.equal(mockA.state.trackId, '1001');
+    assert.equal(mockB.state.playing, false, 'на ведомую deeplink не отправляем');
   } finally {
     await Promise.allSettled([...manager.runtimes.values()].map((r) => r.stop()));
     await Promise.allSettled([mockA.close(), mockB.close()]);
