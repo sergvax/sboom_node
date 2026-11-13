@@ -251,15 +251,66 @@ function lanAddresses() {
   return out;
 }
 
+/** Отвечает ли на порту уже наш сервер (а не чужая программа). */
+async function isOurServer(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/state`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return false;
+    const json = await res.json();
+    return Array.isArray(json?.speakers) && Boolean(json?.nativeMultiroom);
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
+  // Проверяем порт до подключения к колонкам, чтобы второй экземпляр не
+  // открывал лишние сессии на устройствах.
+  if (await isOurServer(PORT)) {
+    console.log('');
+    console.log(`  Сервер уже запущен: http://localhost:${PORT}`);
+    console.log(`  Перезапустить:      npm run restart`);
+    console.log('');
+    return;
+  }
+
   await manager.init();
-  const server = app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST);
+
+  server.on('listening', () => {
     console.log('');
     console.log('  SberBoom Standalone');
     console.log(`  локально:   http://localhost:${PORT}`);
     for (const ip of lanAddresses()) console.log(`  в сети:     http://${ip}:${PORT}`);
     console.log(`  колонок:    ${manager.runtimes.size}`);
     console.log('');
+  });
+
+  // Понятное сообщение вместо стека EADDRINUSE: чаще всего сервер уже
+  // запущен (например, остался висеть после закрытия терминала).
+  server.on('error', async (err) => {
+    if (err?.code !== 'EADDRINUSE') {
+      console.error('Не удалось запустить сервер:', err);
+      process.exit(1);
+      return;
+    }
+
+    if (await isOurServer(PORT)) {
+      console.log('');
+      console.log(`  Сервер уже запущен: http://localhost:${PORT}`);
+      console.log(`  Перезапустить:      npm run restart`);
+      console.log('');
+      process.exit(0);
+      return;
+    }
+
+    console.error('');
+    console.error(`  Порт ${PORT} уже занят другой программой.`);
+    console.error(`  Другой порт: PORT=${PORT + 1} npm start`);
+    console.error('');
+    process.exit(1);
   });
 
   const shutdown = async (signal) => {
